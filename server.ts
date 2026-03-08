@@ -42,7 +42,7 @@ const saveSyncState = (state: SyncPayload) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   const syncState = loadSyncState();
   const syncClients = new Set<express.Response>();
 

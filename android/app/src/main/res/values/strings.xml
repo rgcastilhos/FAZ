@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fazendaon</string>
+    <string name="title_activity_main">Fazendaon</string>
+    <string name="package_name">com.fazendaon.app</string>
+    <string name="custom_url_scheme">com.fazendaon.app</string>
+</resources>
