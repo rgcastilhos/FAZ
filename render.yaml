@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: react-example
+    env: docker
+    autoDeploy: true
+    healthCheckPath: /api/health
