@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Camera as CapacitorCamera } from '@capacitor/camera';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
 
 // Default admin code to access user management
@@ -137,8 +139,21 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
   const [error, setError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDiagOpen, setIsDiagOpen] = useState(false);
+  const [isDiagLoading, setIsDiagLoading] = useState(false);
+  const [diagItems, setDiagItems] = useState<DiagnosticItem[]>([]);
 
   const loginBg = localStorage.getItem('global_login_bg') || 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2070&auto=format&fit=crop';
+
+  const handleRunDiagnostics = async () => {
+    setIsDiagLoading(true);
+    try {
+      const items = await runConnectivityDiagnostics();
+      setDiagItems(items);
+    } finally {
+      setIsDiagLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,13 +165,23 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
       const trimmedPassword = (password || '').trim();
 
       // Admin login remains local via master code.
-      if (trimmedUsername.toLowerCase() === 'admin' && trimmedPassword === ADMIN_CODE) {
-        onLogin({
-          username: 'admin',
-          name: 'Administrador',
-          role: 'admin'
+      if (trimmedUsername) {
+        const adminRes = await apiFetch('/api/auth/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: trimmedUsername, password: trimmedPassword }),
         });
-        return;
+        const adminPayload = await adminRes.json().catch(() => ({} as any));
+        if (adminRes.ok && adminPayload?.user) {
+          localStorage.setItem(ADMIN_CODE_KEY, trimmedPassword);
+          localStorage.setItem(ADMIN_USERNAME_KEY, String(adminPayload.user.username || trimmedUsername));
+          onLogin({
+            username: adminPayload.user.username || trimmedUsername,
+            name: 'Administrador',
+            role: 'admin'
+          });
+          return;
+        }
       }
 
       const response = await apiFetch('/api/auth/login', {
@@ -277,6 +302,16 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
             )}
           </button>
         </form>
+        <button
+          type="button"
+          onClick={() => {
+            setIsDiagOpen(true);
+            if (diagItems.length === 0) void handleRunDiagnostics();
+          }}
+          className="mt-4 w-full text-xs uppercase tracking-widest font-bold py-3 rounded-2xl border border-white/10 text-zinc-300 hover:bg-white/5 transition-all"
+        >
+          Diagnóstico de Conexão
+        </button>
       </motion.div>
       
       <div className="relative z-20 mt-12 text-center space-y-6">
@@ -294,6 +329,52 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
           <p className="text-zinc-500">55-99991-9499</p>
         </div>
       </div>
+
+      <AnimatePresence>
+        {isDiagOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-3xl p-5"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black uppercase tracking-widest text-zinc-200">Diagnóstico</h3>
+                <button onClick={() => setIsDiagOpen(false)} className="text-zinc-400 hover:text-zinc-200">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                {diagItems.map((item) => (
+                  <div key={item.name} className={`p-3 rounded-xl border ${item.ok ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-red-500/40 bg-red-500/10'}`}>
+                    <p className="text-xs font-black uppercase tracking-widest">{item.name}</p>
+                    <p className="text-xs mt-1 break-all text-zinc-200">{item.detail}</p>
+                  </div>
+                ))}
+                {diagItems.length === 0 && !isDiagLoading && (
+                  <p className="text-xs text-zinc-400">Nenhum teste executado.</p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={isDiagLoading}
+                onClick={handleRunDiagnostics}
+                className="mt-4 w-full bg-[#5a5a40] hover:bg-[#4a4a35] disabled:opacity-60 text-[#f5f2ed] text-xs font-black uppercase tracking-widest py-3 rounded-2xl transition-all"
+              >
+                {isDiagLoading ? 'Testando...' : 'Rodar Teste'}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -310,9 +391,7 @@ function UserManagementView() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/users', {
-        headers: { 'x-admin-code': ADMIN_CODE },
-      });
+      const response = await apiFetch(`/api/users?adminCode=${encodeURIComponent(getAdminCode())}`);
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
         setError(payload?.error || 'Falha ao carregar usuários do servidor.');
@@ -362,9 +441,9 @@ function UserManagementView() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-code': ADMIN_CODE,
         },
         body: JSON.stringify({
+          adminCode: getAdminCode(),
           username,
           name: newName,
           password: newPassword,
@@ -409,7 +488,8 @@ function UserManagementView() {
       setIsSaving(true);
       const response = await apiFetch(`/api/users/${encodeURIComponent(usernameToDelete)}`, {
         method: 'DELETE',
-        headers: { 'x-admin-code': ADMIN_CODE },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode: getAdminCode() }),
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
@@ -658,6 +738,22 @@ function CameraView({ user }: { user: User | null }) {
   }, [capturedImage]);
 
   const startCamera = async () => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const current = await CapacitorCamera.checkPermissions();
+        if (current.camera !== 'granted') {
+          const requested = await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+          if (requested.camera !== 'granted') {
+            setError('Permissão da câmera negada no Android. Vá em Configurações > Apps > permissões e habilite Câmera.');
+            setIsCameraActive(false);
+            return;
+          }
+        }
+      } catch (permErr) {
+        console.error('Erro ao solicitar permissão nativa de câmera:', permErr);
+      }
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError("Seu navegador não suporta acesso à câmera ou o site não está em um ambiente seguro (HTTPS).");
       setIsCameraActive(false);
@@ -3056,7 +3152,8 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
 }
 
 const normalizeUserRole = (user: User): User => {
-  const isAdminUser = (user.username || '').toLowerCase() === 'admin';
+  const isStoredAdmin = (user.username || '').toLowerCase() === getAdminUsername();
+  const isAdminUser = user.role === 'admin' || isStoredAdmin;
   return { ...user, role: isAdminUser ? 'admin' : 'user' };
 };
 
@@ -3088,6 +3185,8 @@ const DEFAULT_NATIVE_API_BASE_FALLBACK = 'https://app.fazendaon.com';
 const OPEN_FARM_SETTINGS_KEY = '__open_farm_settings';
 const OFFLINE_AUTH_KEY = '__offline_auth_v1';
 const OFFLINE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+const ADMIN_CODE_KEY = '__admin_code';
+const ADMIN_USERNAME_KEY = '__admin_username';
 
 const isNativeRuntime = (): boolean => {
   const cap = (window as any)?.Capacitor;
@@ -3099,9 +3198,9 @@ const isNativeRuntime = (): boolean => {
 };
 
 const getApiBaseUrl = (): string => {
+  if (isNativeRuntime()) return DEFAULT_NATIVE_API_BASE;
   const raw = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
   if (raw) return raw.replace(/\/$/, '');
-  if (isNativeRuntime()) return DEFAULT_NATIVE_API_BASE;
   return '';
 };
 
@@ -3151,6 +3250,17 @@ const upsertOfflineAuthEntry = (username: string, password: string, user: User) 
   saveOfflineAuthMap(map);
 };
 
+const getAdminCode = (): string => {
+  const stored = localStorage.getItem(ADMIN_CODE_KEY);
+  if (stored && stored.trim()) return stored.trim();
+  return String(ADMIN_CODE || '').trim();
+};
+
+const getAdminUsername = (): string => {
+  const stored = localStorage.getItem(ADMIN_USERNAME_KEY);
+  return (stored || '').trim().toLowerCase();
+};
+
 const refreshOfflineWindowForUser = (username: string, user?: User) => {
   const map = getOfflineAuthMap();
   const key = username.toLowerCase();
@@ -3166,11 +3276,62 @@ const refreshOfflineWindowForUser = (username: string, user?: User) => {
 };
 
 const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => {
+  if (isNativeRuntime()) {
+    const url = `${DEFAULT_NATIVE_API_BASE}${path}`;
+    const method = (init?.method || 'GET').toUpperCase();
+    const rawHeaders = init?.headers;
+    const headers: Record<string, string> = {};
+    if (rawHeaders instanceof Headers) {
+      rawHeaders.forEach((value, key) => { headers[key] = value; });
+    } else if (Array.isArray(rawHeaders)) {
+      rawHeaders.forEach(([key, value]) => { headers[String(key)] = String(value); });
+    } else if (rawHeaders && typeof rawHeaders === 'object') {
+      Object.entries(rawHeaders as Record<string, string>).forEach(([k, v]) => {
+        headers[k] = String(v);
+      });
+    }
+
+    let data: any = undefined;
+    const body = init?.body;
+    if (typeof body === 'string') {
+      const contentType = (headers['Content-Type'] || headers['content-type'] || '').toLowerCase();
+      if (contentType.includes('application/json')) {
+        try {
+          data = JSON.parse(body);
+        } catch {
+          data = body;
+        }
+      } else {
+        data = body;
+      }
+    }
+
+    const nativeResponse = await CapacitorHttp.request({
+      url,
+      method,
+      headers,
+      data,
+      readTimeout: 30000,
+      connectTimeout: 30000,
+    });
+
+    const responseBody =
+      typeof nativeResponse.data === 'string'
+        ? nativeResponse.data
+        : JSON.stringify(nativeResponse.data ?? {});
+    return new Response(responseBody, {
+      status: nativeResponse.status,
+      headers: nativeResponse.headers as HeadersInit,
+    });
+  }
+
   const explicit = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
-  const bases = explicit
+  const explicitIsHttp = /^https?:\/\//i.test(explicit);
+  const isApiPath = path.startsWith('/api/');
+  const bases = explicitIsHttp
     ? [explicit.replace(/\/$/, '')]
-    : isNativeRuntime()
-      ? [DEFAULT_NATIVE_API_BASE, DEFAULT_NATIVE_API_BASE_FALLBACK]
+    : isApiPath
+      ? [DEFAULT_NATIVE_API_BASE]
       : [''];
 
   let lastError: unknown = null;
@@ -3178,14 +3339,7 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
     for (const base of bases) {
       const url = base ? `${base}${path}` : path;
       try {
-        const controller = new AbortController();
-        const timeoutMs = isNativeRuntime()
-          ? (attempt === 0 ? 15000 : 7000)
-          : 5000;
-        const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-        const response = await fetch(url, { ...(init || {}), signal: controller.signal });
-        window.clearTimeout(timeout);
-        return response;
+        return await fetch(url, init || {});
       } catch (error) {
         lastError = error;
       }
@@ -3201,6 +3355,60 @@ const warmupApi = async (): Promise<void> => {
   } catch {
     // Best effort only.
   }
+};
+
+type DiagnosticItem = {
+  name: string;
+  ok: boolean;
+  detail: string;
+};
+
+const runConnectivityDiagnostics = async (): Promise<DiagnosticItem[]> => {
+  const results: DiagnosticItem[] = [];
+
+  results.push({
+    name: 'Internet do dispositivo',
+    ok: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    detail: typeof navigator !== 'undefined' ? (navigator.onLine ? 'online' : 'offline') : 'n/a',
+  });
+  results.push({
+    name: 'Base API ativa',
+    ok: true,
+    detail: getApiBaseUrl() || '(relativa ao host atual)',
+  });
+
+  const test = async (name: string, fn: () => Promise<string>) => {
+    try {
+      const detail = await fn();
+      results.push({ name, ok: true, detail });
+    } catch (error: any) {
+      results.push({ name, ok: false, detail: error?.message || 'erro desconhecido' });
+    }
+  };
+
+  await test('Health direto (onrender)', async () => {
+    const r = await fetch(`${DEFAULT_NATIVE_API_BASE}/api/health`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.text();
+  });
+
+  await test('Health via apiFetch', async () => {
+    const r = await apiFetch('/api/health');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.text();
+  });
+
+  await test('Auth endpoint (/api/auth/login)', async () => {
+    const r = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'diag', password: 'diag' }),
+    });
+    // 400/401/403 means endpoint is reachable and working.
+    return `HTTP ${r.status}`;
+  });
+
+  return results;
 };
 
 function App() {
@@ -3426,6 +3634,8 @@ function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('current_user');
+    localStorage.removeItem(ADMIN_CODE_KEY);
+    localStorage.removeItem(ADMIN_USERNAME_KEY);
   };
 
   const handleUpdateUser = (user: User) => {
