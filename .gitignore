@@ -1,3 +1,15 @@
+# Dependencies / build
+node_modules/
+dist/
+coverage/
+
+# Environment and logs
+.env
+.env.*
+!.env.example
+*.log
+.idea/
+
 # Using Android gitignore template: https://github.com/github/gitignore/blob/HEAD/Android.gitignore
 
 # Built application files
