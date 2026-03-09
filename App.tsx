@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from "@google/genai";
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Camera as CapacitorCamera } from '@capacitor/camera';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
 
 // Default admin code to access user management
@@ -65,6 +66,20 @@ interface MapGroundingLink {
   snippet?: string;
 }
 
+const toInputDate = (value?: number): string => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().split('T')[0];
+};
+
+const toDisplayDate = (value?: number): string => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString();
+};
+
 const DEFAULT_CATEGORIES: Category[] = [
   { id: 'cat-1', name: 'Gado de Corte', icon: 'cow' },
   { id: 'cat-2', name: 'Maquinário', icon: 'tractor' },
@@ -118,65 +133,90 @@ const normalizeCategory = (raw: any): Category => ({
   icon: normalizeCategoryIcon(raw?.icon),
 });
 
-const getGeminiApiKey = (): string => {
-  const key =
-    (import.meta as any).env?.GEMINI_API_KEY ||
-    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-    (typeof process !== 'undefined' ? (process as any).env?.GEMINI_API_KEY : undefined);
-  return typeof key === 'string' ? key.trim() : '';
-};
-
 function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDiagOpen, setIsDiagOpen] = useState(false);
+  const [isDiagLoading, setIsDiagLoading] = useState(false);
+  const [diagItems, setDiagItems] = useState<DiagnosticItem[]>([]);
 
   const loginBg = localStorage.getItem('global_login_bg') || 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2070&auto=format&fit=crop';
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleRunDiagnostics = async () => {
+    setIsDiagLoading(true);
+    try {
+      const items = await runConnectivityDiagnostics();
+      setDiagItems(items);
+    } finally {
+      setIsDiagLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(false);
     setErrorMessage('');
-
-    setTimeout(() => {
+    try {
       const trimmedUsername = (username || '').trim();
       const trimmedPassword = (password || '').trim();
-      
-      // Check for Admin Access (using ADMIN_CODE as password for simplicity or keeping it as is)
-      if (trimmedUsername.toLowerCase() === 'admin' && trimmedPassword === ADMIN_CODE) {
-        onLogin({
-          username: 'admin',
-          name: 'Administrador',
-          role: 'admin'
+
+      // Admin login remains local via master code.
+      if (trimmedUsername) {
+        const adminRes = await apiFetch('/api/auth/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: trimmedUsername, password: trimmedPassword }),
         });
-        setIsLoading(false);
+        const adminPayload = await adminRes.json().catch(() => ({} as any));
+        if (adminRes.ok && adminPayload?.user) {
+          localStorage.setItem(ADMIN_CODE_KEY, trimmedPassword);
+          localStorage.setItem(ADMIN_USERNAME_KEY, String(adminPayload.user.username || trimmedUsername));
+          onLogin({
+            username: adminPayload.user.username || trimmedUsername,
+            name: 'Administrador',
+            role: 'admin'
+          });
+          return;
+        }
+      }
+
+      const response = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: trimmedUsername, password: trimmedPassword }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+
+      if (!response.ok || !payload?.user) {
+        setError(true);
+        setErrorMessage(payload?.error || 'Falha ao validar licença. Tente novamente.');
         return;
       }
 
-      // Check for User Credentials
-      const savedUsers = localStorage.getItem('app_users');
-      const users: User[] = savedUsers ? JSON.parse(savedUsers) : [];
-      const validUser = users.find(u => 
-        u.username && u.username.toLowerCase() === trimmedUsername.toLowerCase() && 
-        u.password === trimmedPassword
-      );
-
-      if (validUser) {
-        if (validUser.expiresAt && Date.now() > validUser.expiresAt) {
-          setError(true);
-          setErrorMessage('Acesso expirado. Contate o administrador para renovar.');
-        } else {
-          onLogin({ ...validUser, role: 'user' });
-        }
-      } else {
-        setError(true);
-        setErrorMessage('Credenciais incorretas. Tente novamente.');
+      const loggedUser = { ...payload.user, role: 'user' as const };
+      upsertOfflineAuthEntry(trimmedUsername, trimmedPassword, loggedUser);
+      onLogin(loggedUser);
+    } catch {
+      const trimmedUsername = (username || '').trim();
+      const trimmedPassword = (password || '').trim();
+      const cached = getOfflineAuthEntry(trimmedUsername);
+      if (
+        cached &&
+        cached.password === trimmedPassword &&
+        Date.now() <= Number(cached.offlineUntil || 0)
+      ) {
+        onLogin({ ...cached.user, role: 'user' });
+        return;
       }
+      setError(true);
+      setErrorMessage('Sem conexão. Faça login online ao menos 1x a cada 3 dias.');
+    } finally {
       setIsLoading(false);
-    }, 800);
+    }
   };
 
   return (
@@ -262,6 +302,16 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
             )}
           </button>
         </form>
+        <button
+          type="button"
+          onClick={() => {
+            setIsDiagOpen(true);
+            if (diagItems.length === 0) void handleRunDiagnostics();
+          }}
+          className="mt-4 w-full text-xs uppercase tracking-widest font-bold py-3 rounded-2xl border border-white/10 text-zinc-300 hover:bg-white/5 transition-all"
+        >
+          Diagnóstico de Conexão
+        </button>
       </motion.div>
       
       <div className="relative z-20 mt-12 text-center space-y-6">
@@ -279,6 +329,52 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
           <p className="text-zinc-500">55-99991-9499</p>
         </div>
       </div>
+
+      <AnimatePresence>
+        {isDiagOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-3xl p-5"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black uppercase tracking-widest text-zinc-200">Diagnóstico</h3>
+                <button onClick={() => setIsDiagOpen(false)} className="text-zinc-400 hover:text-zinc-200">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                {diagItems.map((item) => (
+                  <div key={item.name} className={`p-3 rounded-xl border ${item.ok ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-red-500/40 bg-red-500/10'}`}>
+                    <p className="text-xs font-black uppercase tracking-widest">{item.name}</p>
+                    <p className="text-xs mt-1 break-all text-zinc-200">{item.detail}</p>
+                  </div>
+                ))}
+                {diagItems.length === 0 && !isDiagLoading && (
+                  <p className="text-xs text-zinc-400">Nenhum teste executado.</p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={isDiagLoading}
+                onClick={handleRunDiagnostics}
+                className="mt-4 w-full bg-[#5a5a40] hover:bg-[#4a4a35] disabled:opacity-60 text-[#f5f2ed] text-xs font-black uppercase tracking-widest py-3 rounded-2xl transition-all"
+              >
+                {isDiagLoading ? 'Testando...' : 'Rodar Teste'}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -291,29 +387,27 @@ function UserManagementView() {
   const [newExpiration, setNewExpiration] = useState('');
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('app_users');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // Deduplicate by username and filter out invalid entries
-          const uniqueUsers = parsed.reduce((acc: User[], current: User) => {
-            if (current && current.username && !acc.find(u => u.username === current.username)) {
-              acc.push(current);
-            }
-            return acc;
-          }, []);
-          setUsers(uniqueUsers);
-        }
-      } catch (e) {
-        console.error("Failed to parse users", e);
+  const fetchUsers = useCallback(async () => {
+    try {
+      const response = await apiFetch(`/api/users?adminCode=${encodeURIComponent(getAdminCode())}`);
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        setError(payload?.error || 'Falha ao carregar usuários do servidor.');
+        return;
       }
+      setUsers(Array.isArray(payload?.users) ? payload.users : []);
+    } catch {
+      setError('Sem conexão com o servidor de licença.');
     }
   }, []);
 
-  const handleAddUser = (e: React.FormEvent) => {
+  useEffect(() => {
+    void fetchUsers();
+  }, [fetchUsers]);
+
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -341,36 +435,33 @@ function UserManagementView() {
 
     const expiresAt = newExpiration ? new Date(newExpiration + 'T23:59:59').getTime() : undefined;
 
-    let updatedUsers: User[];
-
-    if (editingUser) {
-      updatedUsers = users.map(u => {
-        if (u.username === editingUser) {
-          return {
-            ...u,
-            name: newName,
-            username: username,
-            password: newPassword || u.password, // Keep old password if new one is empty
-            expiresAt
-          };
-        }
-        return u;
+    try {
+      setIsSaving(true);
+      const response = await apiFetch('/api/users/upsert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          adminCode: getAdminCode(),
+          username,
+          name: newName,
+          password: newPassword,
+          expiresAt,
+        }),
       });
-    } else {
-      const newUser: User = {
-        username,
-        password: newPassword,
-        name: newName,
-        role: 'user',
-        createdAt: Date.now(),
-        expiresAt
-      };
-      updatedUsers = [...users, newUser];
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        setError(payload?.error || 'Falha ao salvar usuário.');
+        return;
+      }
+      setUsers(Array.isArray(payload?.users) ? payload.users : []);
+      resetForm();
+    } catch {
+      setError('Sem conexão com o servidor de licença.');
+    } finally {
+      setIsSaving(false);
     }
-
-    setUsers(updatedUsers);
-    localStorage.setItem('app_users', JSON.stringify(updatedUsers));
-    resetForm();
   };
 
   const resetForm = () => {
@@ -386,20 +477,32 @@ function UserManagementView() {
     setNewUsername(user.username);
     setNewName(user.name);
     setNewPassword(''); // Don't show password, allow changing it
-    if (user.expiresAt) {
-      setNewExpiration(new Date(user.expiresAt).toISOString().split('T')[0]);
-    } else {
-      setNewExpiration('');
-    }
+    setNewExpiration(toInputDate(user.expiresAt));
     setEditingUser(user.username);
     setError('');
   };
 
-  const handleDeleteUser = (usernameToDelete: string) => {
-    if (editingUser === usernameToDelete) resetForm();
-    const updatedUsers = users.filter(u => u.username !== usernameToDelete);
-    setUsers(updatedUsers);
-    localStorage.setItem('app_users', JSON.stringify(updatedUsers));
+  const handleDeleteUser = async (usernameToDelete: string) => {
+    setError('');
+    try {
+      setIsSaving(true);
+      const response = await apiFetch(`/api/users/${encodeURIComponent(usernameToDelete)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode: getAdminCode() }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        setError(payload?.error || 'Falha ao remover usuário.');
+        return;
+      }
+      if (editingUser === usernameToDelete) resetForm();
+      setUsers(Array.isArray(payload?.users) ? payload.users : []);
+    } catch {
+      setError('Sem conexão com o servidor de licença.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -456,9 +559,10 @@ function UserManagementView() {
           <div className="flex gap-3">
             <button
               type="submit"
+              disabled={isSaving}
               className="flex-1 bg-[#5a5a40] hover:bg-[#4a4a35] text-[#f5f2ed] text-xs font-black uppercase tracking-widest py-4 rounded-2xl transition-all shadow-xl shadow-[#5a5a40]/20 active:scale-95"
             >
-              {editingUser ? 'Salvar Alterações' : 'Criar Usuário'}
+              {isSaving ? 'Salvando...' : (editingUser ? 'Salvar Alterações' : 'Criar Usuário')}
             </button>
             {editingUser && (
               <button
@@ -500,13 +604,14 @@ function UserManagementView() {
                       {user.expiresAt && (
                         <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${Date.now() > user.expiresAt ? 'text-red-400' : 'text-emerald-400'}`}>
                           {Date.now() > user.expiresAt ? 'Expirado em: ' : 'Vence em: '}
-                          {new Date(user.expiresAt).toLocaleDateString()}
+                          {toDisplayDate(user.expiresAt)}
                         </p>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleEditUser(user)}
+                        disabled={isSaving}
                         className="p-3 text-zinc-500 hover:text-[#d2b48c] hover:bg-[#d2b48c]/10 rounded-2xl transition-all"
                         title="Editar Usuário"
                       >
@@ -514,6 +619,7 @@ function UserManagementView() {
                       </button>
                       <button
                         onClick={() => handleDeleteUser(user.username)}
+                        disabled={isSaving}
                         className="p-3 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-2xl transition-all"
                         title="Remover Usuário"
                       >
@@ -632,6 +738,22 @@ function CameraView({ user }: { user: User | null }) {
   }, [capturedImage]);
 
   const startCamera = async () => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const current = await CapacitorCamera.checkPermissions();
+        if (current.camera !== 'granted') {
+          const requested = await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+          if (requested.camera !== 'granted') {
+            setError('Permissão da câmera negada no Android. Vá em Configurações > Apps > permissões e habilite Câmera.');
+            setIsCameraActive(false);
+            return;
+          }
+        }
+      } catch (permErr) {
+        console.error('Erro ao solicitar permissão nativa de câmera:', permErr);
+      }
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError("Seu navegador não suporta acesso à câmera ou o site não está em um ambiente seguro (HTTPS).");
       setIsCameraActive(false);
@@ -797,13 +919,6 @@ function CameraView({ user }: { user: User | null }) {
     setWeightAnalysis(null);
     
     try {
-      const apiKey = getGeminiApiKey();
-      if (!apiKey) {
-        throw new Error("Chave de API do Gemini não configurada.");
-      }
-      
-      const ai = new GoogleGenAI({ apiKey });
-      
       // Buscar dados de treinamento para melhorar a precisão (Few-shot prompting)
       const trainingData = await getTrainingData(user?.username);
       const recentTraining = trainingData.slice(-5); // Pegar os 5 mais recentes
@@ -815,18 +930,12 @@ function CameraView({ user }: { user: User | null }) {
       }
 
       let prompt = "";
-      let parts: any[] = [];
+      let inlineData: { mimeType: string; data: string } | undefined = undefined;
 
       if (estimationMode === 'camera') {
         const [mimeTypePrefix, base64Data] = capturedImage!.split(';base64,');
         const mimeType = mimeTypePrefix.replace('data:', '');
-        
-        parts.push({ 
-          inlineData: { 
-            mimeType: mimeType, 
-            data: base64Data 
-          } 
-        });
+        inlineData = { mimeType, data: base64Data };
         
         prompt = `Atue como um sistema avançado de Visão Computacional e Zootecnia de Precisão. Analise esta imagem para estimar o peso do animal de produção (bovino, suíno, ovino, etc.).
         
@@ -852,34 +961,18 @@ function CameraView({ user }: { user: User | null }) {
         ${trainingContext}`;
       }
 
-      parts.push({ text: prompt });
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: { parts },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              raca: { type: Type.STRING, description: "Raça ou tipo do animal" },
-              sexo: { type: Type.STRING, description: "Macho ou Fêmea (ou N/A para manual)" },
-              ecc: { type: Type.STRING, description: "Escore de condição corporal estimado" },
-              analise_visual: { type: Type.STRING, description: "Breve descrição técnica da análise" },
-              peso_estimado_kg: { type: Type.NUMBER, description: "Peso estimado em KG (apenas o número)" }
-            },
-            required: ["raca", "sexo", "ecc", "analise_visual", "peso_estimado_kg"]
-          }
-        }
+      const response = await apiFetch('/api/ai/estimate-weight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, inlineData }),
       });
-
-      const responseText = response.text;
-      if (!responseText) {
-        throw new Error("Resposta vazia da IA.");
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Falha na análise de peso.');
       }
 
       try {
-        const data = JSON.parse(responseText);
+        const data = payload?.data || {};
         
         if (!data.peso_estimado_kg || data.peso_estimado_kg === 0) {
           setWeightAnalysis("Não foi possível identificar um animal de produção com clareza para estimativa de peso. Certifique-se de que o animal esteja bem visível de perfil.");
@@ -921,7 +1014,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
         loadHistory();
 
       } catch (parseError) {
-        console.error("JSON Parse Error:", parseError, responseText);
+        console.error("JSON Parse Error:", parseError, payload);
         setWeightAnalysis("Erro ao processar dados da análise técnica. Tente novamente com uma foto mais clara e de perfil.");
       }
 
@@ -1445,9 +1538,6 @@ function TrainingView({ user }: { user: User | null }) {
     setIsAnalyzing(true);
     setError(null);
     try {
-      const apiKey = getGeminiApiKey();
-      if (!apiKey) throw new Error("Chave de API não configurada.");
-      
       const parts = selectedImage.split(';base64,');
       if (parts.length !== 2) {
         throw new Error("Formato de imagem inválido para análise.");
@@ -1455,36 +1545,24 @@ function TrainingView({ user }: { user: User | null }) {
       const [mimeTypePrefix, base64Data] = parts;
       const mimeType = mimeTypePrefix.replace('data:', '');
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { inline_data: { mime_type: mimeType, data: base64Data } },
-                  { text: `Estime o peso deste animal (${animalType}) em KG. Responda apenas com o número.` }
-                ],
-              },
-            ],
-          }),
-        }
-      );
+      const prompt = `Estime o peso deste animal (${animalType}) em KG. Responda em JSON com chaves: raca, sexo, ecc, analise_visual, peso_estimado_kg.`;
+      const res = await apiFetch('/api/ai/estimate-weight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          inlineData: { mimeType, data: base64Data },
+        }),
+      });
 
       if (!res.ok) {
-        const failText = await res.text();
-        throw new Error(`Falha Gemini (${res.status}): ${failText.slice(0, 180)}`);
+        const fail = await res.json().catch(() => ({} as any));
+        throw new Error(fail?.error || `Falha no servidor (${res.status}).`);
       }
 
       const payload = await res.json().catch(() => ({} as any));
-      const partsArray = Array.isArray(payload?.candidates?.[0]?.content?.parts)
-        ? payload.candidates[0].content.parts
-        : [];
-      const rawText = partsArray.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join(' ').trim();
-
-      const estimatedWeight = extractEstimatedWeight(rawText || '');
+      const rawText = JSON.stringify(payload?.data || {});
+      const estimatedWeight = extractEstimatedWeight(rawText);
       if (Number.isNaN(estimatedWeight) || estimatedWeight <= 0) {
         throw new Error("A IA não retornou um peso válido.");
       }
@@ -1927,6 +2005,12 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
   useEffect(() => localStorage.setItem(`${storagePrefix}agro_categories`, JSON.stringify(categories)), [categories, storagePrefix]);
   useEffect(() => localStorage.setItem(`${storagePrefix}agro_items`, JSON.stringify(items)), [items, storagePrefix]);
   useEffect(() => localStorage.setItem(`${storagePrefix}agro_settings`, JSON.stringify(settings)), [settings, storagePrefix]);
+  useEffect(() => {
+    if (localStorage.getItem(OPEN_FARM_SETTINGS_KEY) === '1') {
+      localStorage.removeItem(OPEN_FARM_SETTINGS_KEY);
+      setIsSettingsOpen(true);
+    }
+  }, []);
 
   const filteredItems = useMemo(() => items.filter(item => item.categoryId === activeCategoryId), [items, activeCategoryId]);
   const selectedTotal = useMemo(
@@ -2131,17 +2215,17 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
   const handleGetAIInsights = async () => {
     setIsLoadingInsight(true);
     try {
-      const apiKey = getGeminiApiKey();
-      if (!apiKey) {
-        setAiInsight("Erro: Chave de API do Gemini não configurada.");
+      const response = await apiFetch('/api/ai/inventory-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories, items }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        setAiInsight(payload?.error || 'Erro ao obter insights da IA.');
         return;
       }
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Analise este inventário rural e forneça insights estratégicos curtos:\n${JSON.stringify({ categories, items })}`,
-      });
-      setAiInsight(response.text || "Sem insights no momento.");
+      setAiInsight(payload?.text || "Sem insights no momento.");
     } catch (err: any) {
       console.error(err);
       setAiInsight(`Erro ao obter insights da IA: ${err.message || 'Erro desconhecido'}`);
@@ -2155,33 +2239,17 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     if (!query) return;
     setIsLoadingMapsInsight(true);
     try {
-      const apiKey = getGeminiApiKey();
-      if (!apiKey) {
-        setMapsInsight({ text: "Erro: Chave de API do Gemini não configurada.", links: [] });
+      const response = await apiFetch('/api/ai/maps-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, location: userLocation || undefined }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        setMapsInsight({ text: payload?.error || "Erro ao acessar o Google Maps.", links: [] });
         return;
       }
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Encontre no mapa: ${query}`,
-        config: {
-          systemInstruction: "Você é um assistente agrícola. Use a ferramenta Google Maps para encontrar locais relevantes para o usuário com base na consulta e localização fornecida. Retorne em português do Brasil com texto bem formatado: parágrafo de resumo, lista curta de destaques (cada item em linha separada) e recomendação final.",
-          tools: [{ googleMaps: {} }],
-          toolConfig: {
-            retrievalConfig: {
-              latLng: userLocation || undefined
-            }
-          }
-        },
-      });
-      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-      const links: MapGroundingLink[] = chunks
-        .filter((c: any) => c.maps)
-        .map((c: any) => ({
-          uri: c.maps.uri,
-          title: c.maps.title,
-        }));
-      setMapsInsight({ text: response.text || "Nenhum resultado encontrado.", links });
+      setMapsInsight({ text: payload?.text || "Nenhum resultado encontrado.", links: payload?.links || [] });
     } catch (err: any) {
       console.error(err);
       setMapsInsight({ text: `Erro ao acessar o Google Maps: ${err.message || 'Erro desconhecido'}`, links: [] });
@@ -2980,6 +3048,16 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => {
+              localStorage.setItem(OPEN_FARM_SETTINGS_KEY, '1');
+              setActiveTab('farm');
+            }}
+            className="h-12 w-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-[#5a5a40]/30 hover:text-[#d2b48c] transition-all shadow-xl backdrop-blur-sm group"
+            title="Configurações"
+          >
+            <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+          </button>
+          <button
             onClick={onManualSync}
             disabled={isSyncing}
             className="h-12 w-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-[#5a5a40]/30 hover:text-[#d2b48c] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl backdrop-blur-sm group"
@@ -3074,7 +3152,8 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
 }
 
 const normalizeUserRole = (user: User): User => {
-  const isAdminUser = (user.username || '').toLowerCase() === 'admin';
+  const isStoredAdmin = (user.username || '').toLowerCase() === getAdminUsername();
+  const isAdminUser = user.role === 'admin' || isStoredAdmin;
   return { ...user, role: isAdminUser ? 'admin' : 'user' };
 };
 
@@ -3101,15 +3180,235 @@ const ensureSyncClientId = (): string => {
   return generated;
 };
 
+const DEFAULT_NATIVE_API_BASE = 'https://faz-3ezg.onrender.com';
+const DEFAULT_NATIVE_API_BASE_FALLBACK = 'https://app.fazendaon.com';
+const OPEN_FARM_SETTINGS_KEY = '__open_farm_settings';
+const OFFLINE_AUTH_KEY = '__offline_auth_v1';
+const OFFLINE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+const ADMIN_CODE_KEY = '__admin_code';
+const ADMIN_USERNAME_KEY = '__admin_username';
+
+const isNativeRuntime = (): boolean => {
+  const cap = (window as any)?.Capacitor;
+  if (cap?.isNativePlatform && typeof cap.isNativePlatform === 'function') {
+    return !!cap.isNativePlatform();
+  }
+  const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
+  return protocol === 'capacitor:' || protocol === 'file:';
+};
+
 const getApiBaseUrl = (): string => {
+  if (isNativeRuntime()) return DEFAULT_NATIVE_API_BASE;
   const raw = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
-  if (!raw) return '';
-  return raw.replace(/\/$/, '');
+  if (raw) return raw.replace(/\/$/, '');
+  return '';
 };
 
 const buildApiUrl = (path: string): string => {
   const base = getApiBaseUrl();
   return base ? `${base}${path}` : path;
+};
+
+type OfflineAuthEntry = {
+  username: string;
+  password: string;
+  user: User;
+  offlineUntil: number;
+  lastOnlineAt: number;
+};
+
+const getOfflineAuthMap = (): Record<string, OfflineAuthEntry> => {
+  try {
+    const raw = localStorage.getItem(OFFLINE_AUTH_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as Record<string, OfflineAuthEntry>;
+  } catch {
+    return {};
+  }
+};
+
+const saveOfflineAuthMap = (map: Record<string, OfflineAuthEntry>) => {
+  localStorage.setItem(OFFLINE_AUTH_KEY, JSON.stringify(map));
+};
+
+const getOfflineAuthEntry = (username: string): OfflineAuthEntry | null => {
+  const map = getOfflineAuthMap();
+  return map[username.toLowerCase()] || null;
+};
+
+const upsertOfflineAuthEntry = (username: string, password: string, user: User) => {
+  const map = getOfflineAuthMap();
+  map[username.toLowerCase()] = {
+    username,
+    password,
+    user,
+    lastOnlineAt: Date.now(),
+    offlineUntil: Date.now() + OFFLINE_GRACE_MS,
+  };
+  saveOfflineAuthMap(map);
+};
+
+const getAdminCode = (): string => {
+  const stored = localStorage.getItem(ADMIN_CODE_KEY);
+  if (stored && stored.trim()) return stored.trim();
+  return String(ADMIN_CODE || '').trim();
+};
+
+const getAdminUsername = (): string => {
+  const stored = localStorage.getItem(ADMIN_USERNAME_KEY);
+  return (stored || '').trim().toLowerCase();
+};
+
+const refreshOfflineWindowForUser = (username: string, user?: User) => {
+  const map = getOfflineAuthMap();
+  const key = username.toLowerCase();
+  const current = map[key];
+  if (!current) return;
+  map[key] = {
+    ...current,
+    user: user ? { ...current.user, ...user } : current.user,
+    lastOnlineAt: Date.now(),
+    offlineUntil: Date.now() + OFFLINE_GRACE_MS,
+  };
+  saveOfflineAuthMap(map);
+};
+
+const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => {
+  if (isNativeRuntime()) {
+    const url = `${DEFAULT_NATIVE_API_BASE}${path}`;
+    const method = (init?.method || 'GET').toUpperCase();
+    const rawHeaders = init?.headers;
+    const headers: Record<string, string> = {};
+    if (rawHeaders instanceof Headers) {
+      rawHeaders.forEach((value, key) => { headers[key] = value; });
+    } else if (Array.isArray(rawHeaders)) {
+      rawHeaders.forEach(([key, value]) => { headers[String(key)] = String(value); });
+    } else if (rawHeaders && typeof rawHeaders === 'object') {
+      Object.entries(rawHeaders as Record<string, string>).forEach(([k, v]) => {
+        headers[k] = String(v);
+      });
+    }
+
+    let data: any = undefined;
+    const body = init?.body;
+    if (typeof body === 'string') {
+      const contentType = (headers['Content-Type'] || headers['content-type'] || '').toLowerCase();
+      if (contentType.includes('application/json')) {
+        try {
+          data = JSON.parse(body);
+        } catch {
+          data = body;
+        }
+      } else {
+        data = body;
+      }
+    }
+
+    const nativeResponse = await CapacitorHttp.request({
+      url,
+      method,
+      headers,
+      data,
+      readTimeout: 30000,
+      connectTimeout: 30000,
+    });
+
+    const responseBody =
+      typeof nativeResponse.data === 'string'
+        ? nativeResponse.data
+        : JSON.stringify(nativeResponse.data ?? {});
+    return new Response(responseBody, {
+      status: nativeResponse.status,
+      headers: nativeResponse.headers as HeadersInit,
+    });
+  }
+
+  const explicit = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
+  const explicitIsHttp = /^https?:\/\//i.test(explicit);
+  const isApiPath = path.startsWith('/api/');
+  const bases = explicitIsHttp
+    ? [explicit.replace(/\/$/, '')]
+    : isApiPath
+      ? [DEFAULT_NATIVE_API_BASE]
+      : [''];
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (const base of bases) {
+      const url = base ? `${base}${path}` : path;
+      try {
+        return await fetch(url, init || {});
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  throw lastError || new Error('Network error');
+};
+
+const warmupApi = async (): Promise<void> => {
+  try {
+    await apiFetch('/api/health', { method: 'GET' });
+  } catch {
+    // Best effort only.
+  }
+};
+
+type DiagnosticItem = {
+  name: string;
+  ok: boolean;
+  detail: string;
+};
+
+const runConnectivityDiagnostics = async (): Promise<DiagnosticItem[]> => {
+  const results: DiagnosticItem[] = [];
+
+  results.push({
+    name: 'Internet do dispositivo',
+    ok: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    detail: typeof navigator !== 'undefined' ? (navigator.onLine ? 'online' : 'offline') : 'n/a',
+  });
+  results.push({
+    name: 'Base API ativa',
+    ok: true,
+    detail: getApiBaseUrl() || '(relativa ao host atual)',
+  });
+
+  const test = async (name: string, fn: () => Promise<string>) => {
+    try {
+      const detail = await fn();
+      results.push({ name, ok: true, detail });
+    } catch (error: any) {
+      results.push({ name, ok: false, detail: error?.message || 'erro desconhecido' });
+    }
+  };
+
+  await test('Health direto (onrender)', async () => {
+    const r = await fetch(`${DEFAULT_NATIVE_API_BASE}/api/health`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.text();
+  });
+
+  await test('Health via apiFetch', async () => {
+    const r = await apiFetch('/api/health');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.text();
+  });
+
+  await test('Auth endpoint (/api/auth/login)', async () => {
+    const r = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'diag', password: 'diag' }),
+    });
+    // 400/401/403 means endpoint is reachable and working.
+    return `HTTP ${r.status}`;
+  });
+
+  return results;
 };
 
 function App() {
@@ -3119,11 +3418,23 @@ function App() {
   const manualSyncRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
+    void warmupApi();
+  }, []);
+
+  useEffect(() => {
     const saved = localStorage.getItem('current_user');
     if (saved) {
       try {
         const parsedUser = JSON.parse(saved) as User;
         const normalizedUser = normalizeUserRole(parsedUser);
+        if (normalizedUser.role === 'user') {
+          const cached = getOfflineAuthEntry(normalizedUser.username);
+          if (!cached || Date.now() > Number(cached.offlineUntil || 0)) {
+            localStorage.removeItem('current_user');
+            setCurrentUser(null);
+            return;
+          }
+        }
         setCurrentUser(normalizedUser);
         localStorage.setItem('current_user', JSON.stringify(normalizedUser));
       } catch {
@@ -3131,6 +3442,61 @@ function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'user') return;
+
+    let isDisposed = false;
+    const validateLicense = async () => {
+      try {
+        const response = await apiFetch(`/api/license/${encodeURIComponent(currentUser.username)}`);
+        if (!response.ok) return;
+        const payload = await response.json() as { active?: boolean, user?: User };
+        if (isDisposed) return;
+        if (!payload?.active) {
+          setCurrentUser(null);
+          localStorage.removeItem('current_user');
+          return;
+        }
+        if (payload?.user) {
+          const refreshedUser = normalizeUserRole(payload.user);
+          refreshOfflineWindowForUser(currentUser.username, refreshedUser);
+          setCurrentUser((prev) => {
+            if (
+              prev &&
+              prev.username === refreshedUser.username &&
+              prev.name === refreshedUser.name &&
+              prev.role === refreshedUser.role &&
+              prev.expiresAt === refreshedUser.expiresAt
+            ) {
+              return prev;
+            }
+            localStorage.setItem('current_user', JSON.stringify(refreshedUser));
+            return refreshedUser;
+          });
+        } else {
+          refreshOfflineWindowForUser(currentUser.username);
+        }
+      } catch {
+        // Keep session while offline; validation will retry.
+      }
+    };
+
+    void validateLicense();
+    const timer = window.setInterval(() => {
+      void validateLicense();
+    }, 120000);
+    const onOnline = () => {
+      void validateLicense();
+    };
+    window.addEventListener('online', onOnline);
+
+    return () => {
+      isDisposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -3142,7 +3508,7 @@ function App() {
 
     const sendUpdate = async (payload: Omit<SyncUpdatePayload, 'updatedAt'>) => {
       try {
-        await fetch(buildApiUrl('/api/sync/update'), {
+        await apiFetch('/api/sync/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...payload, updatedAt: Date.now() }),
@@ -3166,7 +3532,7 @@ function App() {
 
     const applyServerSnapshot = async () => {
       try {
-        const response = await fetch(buildApiUrl('/api/sync/state'));
+        const response = await apiFetch('/api/sync/state');
         if (!response.ok) return;
         const snapshot = await response.json() as { data?: Record<string, string> };
         const serverData = snapshot?.data || {};
@@ -3208,37 +3574,43 @@ function App() {
     };
     manualSyncRef.current = applyServerSnapshot;
 
-    const stream = new EventSource(buildApiUrl('/api/sync/stream'));
-    stream.addEventListener('update', (event: MessageEvent) => {
-      if (isDisposed) return;
-      try {
-        const payload = JSON.parse(event.data) as SyncUpdatePayload;
-        if (!payload || payload.clientId === clientId || !shouldSyncKey(payload.key)) return;
-        isApplyingRemoteUpdate = true;
-        try {
-          if (payload.op === 'set' && typeof payload.value === 'string') {
-            originalSetItem.call(localStorage, payload.key, payload.value);
-          } else if (payload.op === 'remove') {
-            originalRemoveItem.call(localStorage, payload.key);
+    let stream: EventSource | null = null;
+    try {
+      if (typeof EventSource !== 'undefined' && !isNativeRuntime()) {
+        stream = new EventSource(buildApiUrl('/api/sync/stream'));
+        stream.addEventListener('update', (event: MessageEvent) => {
+          if (isDisposed) return;
+          try {
+            const payload = JSON.parse(event.data) as SyncUpdatePayload;
+            if (!payload || payload.clientId === clientId || !shouldSyncKey(payload.key)) return;
+            isApplyingRemoteUpdate = true;
+            try {
+              if (payload.op === 'set' && typeof payload.value === 'string') {
+                originalSetItem.call(localStorage, payload.key, payload.value);
+              } else if (payload.op === 'remove') {
+                originalRemoveItem.call(localStorage, payload.key);
+              }
+            } finally {
+              isApplyingRemoteUpdate = false;
+            }
+            setSyncRevision((prev) => prev + 1);
+          } catch (error) {
+            console.error('Invalid sync payload:', error);
           }
-        } finally {
-          isApplyingRemoteUpdate = false;
-        }
-        setSyncRevision((prev) => prev + 1);
-      } catch (error) {
-        console.error('Invalid sync payload:', error);
+        });
+        stream.onerror = (error) => {
+          console.error('Sync stream error:', error);
+        };
       }
-    });
-
-    stream.onerror = (error) => {
-      console.error('Sync stream error:', error);
-    };
+    } catch (error) {
+      console.error('Failed to open sync stream:', error);
+    }
 
     void applyServerSnapshot();
 
     return () => {
       isDisposed = true;
-      stream.close();
+      if (stream) stream.close();
       Storage.prototype.setItem = originalSetItem;
       Storage.prototype.removeItem = originalRemoveItem;
     };
@@ -3262,6 +3634,8 @@ function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('current_user');
+    localStorage.removeItem(ADMIN_CODE_KEY);
+    localStorage.removeItem(ADMIN_USERNAME_KEY);
   };
 
   const handleUpdateUser = (user: User) => {

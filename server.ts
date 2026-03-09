@@ -30,10 +30,11 @@ const SYNC_FILE = path.resolve(process.cwd(), ".sync-state.json");
 const USERS_FILE = path.resolve(process.cwd(), ".users-state.json");
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || "RKI").trim();
 const ADMIN_CODE = process.env.ADMIN_CODE || "153720";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const getGeminiApiKey = (): string =>
+  (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
 
 const getAiClient = (): GoogleGenAI | null => {
-  const key = GEMINI_API_KEY.trim();
+  const key = getGeminiApiKey();
   if (!key) return null;
   return new GoogleGenAI({ apiKey: key });
 };
@@ -134,7 +135,16 @@ async function startServer() {
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+    const hasGeminiKey = !!getGeminiApiKey();
+    res.json({
+      status: "ok",
+      geminiConfigured: hasGeminiKey,
+      geminiEnvSource: process.env.GEMINI_API_KEY
+        ? "GEMINI_API_KEY"
+        : process.env.GOOGLE_API_KEY
+          ? "GOOGLE_API_KEY"
+          : "none",
+    });
   });
 
   app.post("/api/auth/login", (req, res) => {
