@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
+import bcrypt from "bcryptjs";
 
 for (const envFile of [".env.local", ".env"]) {
   const envPath = path.resolve(process.cwd(), envFile);
@@ -36,13 +38,25 @@ type ManagedUser = {
 
 const DATA_DIR = (() => {
   const configured =
-    (process.env.DATA_DIR || process.env.USER_DATA_DIR || process.env.RENDER_DISK_PATH || "").trim();
+    (
+      process.env.STORAGE_PATH ||
+      process.env.DATA_DIR ||
+      process.env.USER_DATA_DIR ||
+      process.env.RENDER_DISK_PATH ||
+      ""
+    ).trim();
   return configured ? path.resolve(configured) : process.cwd();
 })();
 const SYNC_FILE = path.resolve(DATA_DIR, ".sync-state.json");
 const USERS_FILE = path.resolve(DATA_DIR, ".users-state.json");
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || "RKI").trim();
 const ADMIN_CODE = process.env.ADMIN_CODE || "153720";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
+const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const supabase =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null;
 const getGeminiApiKey = (): string =>
   (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
 
@@ -50,6 +64,60 @@ const getAiClient = (): GoogleGenAI | null => {
   const key = getGeminiApiKey();
   if (!key) return null;
   return new GoogleGenAI({ apiKey: key });
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableAiError = (error: any): boolean => {
+  const code = Number(error?.status || error?.statusCode || error?.code || error?.response?.status || 0);
+  const statusText = String(error?.error?.status || error?.statusText || "").toUpperCase();
+  const message = String(error?.message || "");
+  const combined = `${statusText} ${message}`;
+  return (
+    code === 429 ||
+    code === 503 ||
+    /RESOURCE_EXHAUSTED|UNAVAILABLE|INDISPONIVEL|INDISPONÍVEL|HIGH DEMAND|ALTA DEMANDA|RATE LIMIT/i.test(combined)
+  );
+};
+
+const generateContentWithRetry = async (
+  ai: GoogleGenAI,
+  request: Record<string, any>,
+  preferredModels: string[],
+  attemptsPerModel = 3,
+) => {
+  const models = [...new Set(preferredModels.filter(Boolean))];
+  let lastError: any = null;
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= attemptsPerModel; attempt += 1) {
+      try {
+        return await ai.models.generateContent({
+          ...request,
+          model,
+        });
+      } catch (error: any) {
+        lastError = error;
+        const retryable = isRetryableAiError(error);
+        const hasMoreAttempts = attempt < attemptsPerModel;
+        if (!retryable || !hasMoreAttempts) break;
+        const backoffMs = 800 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250);
+        await sleep(backoffMs);
+      }
+    }
+  }
+
+  throw lastError;
+};
+
+const sendAiError = (res: express.Response, error: any, fallbackMessage: string) => {
+  if (isRetryableAiError(error)) {
+    res.status(503).json({
+      error: "Modelo em alta demanda no momento. Tente novamente em alguns segundos.",
+    });
+    return;
+  }
+  res.status(500).json({ error: error?.message || fallbackMessage });
 };
 
 const ensureDataDir = () => {
@@ -104,7 +172,38 @@ const sanitizeUser = (user: ManagedUser) => ({
   createdAt: user.createdAt,
   expiresAt: user.expiresAt,
 });
+type DbUser = {
+  username: string;
+  name: string;
+  password_hash: string;
+  created_at: string;
+  expires_at: string | null;
+};
 
+const listUsersDb = async (): Promise<DbUser[]> => {
+  if (!supabase) throw new Error("Supabase não configurado.");
+  const { data, error } = await supabase
+    .from("managed_users")
+    .select("username,name,password_hash,created_at,expires_at")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as DbUser[];
+};
+
+const findUserDb = async (username: string): Promise<DbUser | null> => {
+  if (!supabase) throw new Error("Supabase não configurado.");
+  const normalized = username.trim().toLowerCase();
+
+  const { data, error } = await supabase
+    .from("managed_users")
+    .select("username,name,password_hash,created_at,expires_at")
+    .eq("username", normalized)
+    .maybeSingle();
+
+  if (error) throw error;
+  return (data as DbUser | null) || null;
+};
 const loadSyncState = (): SyncPayload => {
   try {
     if (fs.existsSync(SYNC_FILE)) {
@@ -348,8 +447,9 @@ async function startServer() {
       }
       parts.push({ text: prompt });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+      const response = await generateContentWithRetry(
+        ai,
+        {
         contents: { parts },
         config: {
           responseMimeType: "application/json",
@@ -365,13 +465,15 @@ async function startServer() {
             required: ["raca", "sexo", "ecc", "analise_visual", "peso_estimado_kg"],
           },
         },
-      });
+        },
+        ["gemini-3-flash-preview", "gemini-2.5-flash"],
+      );
 
       const text = response.text || "";
       const data = JSON.parse(text);
       res.json({ data });
     } catch (error: any) {
-      res.status(500).json({ error: error?.message || "Falha na análise de peso." });
+      sendAiError(res, error, "Falha na análise de peso.");
     }
   });
 
@@ -384,13 +486,16 @@ async function startServer() {
       }
       const categories = req.body?.categories || [];
       const items = req.body?.items || [];
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+      const response = await generateContentWithRetry(
+        ai,
+        {
         contents: `Analise este inventário rural e forneça insights estratégicos curtos:\n${JSON.stringify({ categories, items })}`,
-      });
+        },
+        ["gemini-3-flash-preview", "gemini-2.5-flash"],
+      );
       res.json({ text: response.text || "Sem insights no momento." });
     } catch (error: any) {
-      res.status(500).json({ error: error?.message || "Falha ao gerar insights." });
+      sendAiError(res, error, "Falha ao gerar insights.");
     }
   });
 
@@ -409,8 +514,9 @@ async function startServer() {
         return;
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+      const response = await generateContentWithRetry(
+        ai,
+        {
         contents: `Encontre no mapa: ${query}`,
         config: {
           systemInstruction:
@@ -425,7 +531,9 @@ async function startServer() {
             },
           },
         },
-      });
+        },
+        ["gemini-2.5-flash"],
+      );
 
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const links = chunks
@@ -437,7 +545,7 @@ async function startServer() {
 
       res.json({ text: response.text || "Nenhum resultado encontrado.", links });
     } catch (error: any) {
-      res.status(500).json({ error: error?.message || "Falha ao consultar mapas." });
+      sendAiError(res, error, "Falha ao consultar mapas.");
     }
   });
 

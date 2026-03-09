@@ -970,7 +970,7 @@ function CameraView({ user }: { user: User | null }) {
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
-        throw new Error(payload?.error || 'Falha na análise de peso.');
+        throw new Error(getApiErrorMessage(payload, response.status, 'Falha na análise de peso.'));
       }
 
       try {
@@ -1559,7 +1559,7 @@ function TrainingView({ user }: { user: User | null }) {
 
       if (!res.ok) {
         const fail = await res.json().catch(() => ({} as any));
-        throw new Error(fail?.error || `Falha no servidor (${res.status}).`);
+        throw new Error(getApiErrorMessage(fail, res.status, `Falha no servidor (${res.status}).`));
       }
 
       const payload = await res.json().catch(() => ({} as any));
@@ -2253,7 +2253,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
-        setAiInsight(payload?.error || 'Erro ao obter insights da IA.');
+        setAiInsight(getApiErrorMessage(payload, response.status, 'Erro ao obter insights da IA.'));
         return;
       }
       setAiInsight(payload?.text || "Sem insights no momento.");
@@ -2277,7 +2277,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
-        setMapsInsight({ text: payload?.error || "Erro ao acessar o Google Maps.", links: [] });
+        setMapsInsight({ text: getApiErrorMessage(payload, response.status, "Erro ao acessar o Google Maps."), links: [] });
         return;
       }
       setMapsInsight({ text: payload?.text || "Nenhum resultado encontrado.", links: payload?.links || [] });
@@ -3403,6 +3403,31 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
     await new Promise((resolve) => setTimeout(resolve, 1200));
   }
   throw lastError || new Error('Network error');
+};
+
+const getApiErrorMessage = (payload: any, status: number, fallback: string): string => {
+  const raw = payload?.error;
+  const message =
+    typeof raw === 'string'
+      ? raw
+      : typeof raw?.message === 'string'
+        ? raw.message
+        : typeof payload?.message === 'string'
+          ? payload.message
+          : '';
+
+  const statusText = String(raw?.status || payload?.status || '');
+  const code = Number(raw?.code || payload?.code || 0);
+  const combined = `${message} ${statusText}`;
+  if (
+    status === 503 ||
+    code === 503 ||
+    /UNAVAILABLE|INDISPONIVEL|INDISPONÍVEL|HIGH DEMAND|ALTA DEMANDA/i.test(combined)
+  ) {
+    return 'IA em alta demanda no momento. Tente novamente em alguns segundos.';
+  }
+
+  return message || fallback;
 };
 
 const warmupApi = async (): Promise<void> => {

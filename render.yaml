@@ -6,11 +6,13 @@ services:
     healthCheckPath: /api/health
     disk:
       name: app-data
-      mountPath: /var/data
+      mountPath: /data
       sizeGB: 1
     envVars:
+      - key: STORAGE_PATH
+        value: /data/uploads
       - key: DATA_DIR
-        value: /var/data
+        value: /data/uploads
       - key: ADMIN_CODE
         value: "153720"
       - key: ADMIN_USERNAME
