@@ -2,7 +2,15 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
+
+for (const envFile of [".env.local", ".env"]) {
+  const envPath = path.resolve(process.cwd(), envFile);
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: false });
+  }
+}
 
 type SyncOperation = {
   clientId: string;
@@ -26,8 +34,13 @@ type ManagedUser = {
   expiresAt: number | undefined;
 };
 
-const SYNC_FILE = path.resolve(process.cwd(), ".sync-state.json");
-const USERS_FILE = path.resolve(process.cwd(), ".users-state.json");
+const DATA_DIR = (() => {
+  const configured =
+    (process.env.DATA_DIR || process.env.USER_DATA_DIR || process.env.RENDER_DISK_PATH || "").trim();
+  return configured ? path.resolve(configured) : process.cwd();
+})();
+const SYNC_FILE = path.resolve(DATA_DIR, ".sync-state.json");
+const USERS_FILE = path.resolve(DATA_DIR, ".users-state.json");
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || "RKI").trim();
 const ADMIN_CODE = process.env.ADMIN_CODE || "153720";
 const getGeminiApiKey = (): string =>
@@ -39,12 +52,20 @@ const getAiClient = (): GoogleGenAI | null => {
   return new GoogleGenAI({ apiKey: key });
 };
 
+const ensureDataDir = () => {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (error) {
+    console.error("Failed to ensure data dir:", DATA_DIR, error);
+  }
+};
+
 const normalizeUsers = (input: unknown): ManagedUser[] => {
   if (!Array.isArray(input)) return [];
   return input
     .map((raw) => {
       const username = String((raw as any)?.username || "").trim();
-      const password = String((raw as any)?.password || "");
+      const password = String((raw as any)?.password || "").trim();
       const name = String((raw as any)?.name || "").trim();
       const createdAt = Number((raw as any)?.createdAt) || Date.now();
       const expiresRaw = Number((raw as any)?.expiresAt);
@@ -115,6 +136,7 @@ const isAdminRequest = (req: express.Request): boolean => {
 };
 
 async function startServer() {
+  ensureDataDir();
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
   const syncState = loadSyncState();
@@ -136,6 +158,7 @@ async function startServer() {
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     const hasGeminiKey = !!getGeminiApiKey();
+    const usersFileExists = fs.existsSync(USERS_FILE);
     res.json({
       status: "ok",
       geminiConfigured: hasGeminiKey,
@@ -144,6 +167,10 @@ async function startServer() {
         : process.env.GOOGLE_API_KEY
           ? "GOOGLE_API_KEY"
           : "none",
+      dataDir: DATA_DIR,
+      usersFile: USERS_FILE,
+      usersFileExists,
+      usersCount: usersState.length,
     });
   });
 
@@ -213,7 +240,7 @@ async function startServer() {
 
     const username = String(req.body?.username || "").trim();
     const name = String(req.body?.name || "").trim();
-    const password = String(req.body?.password || "");
+    const password = String(req.body?.password || "").trim();
     const expiresRaw = Number(req.body?.expiresAt);
     const expiresAt = Number.isFinite(expiresRaw) && expiresRaw > 0 ? expiresRaw : undefined;
 
@@ -234,10 +261,10 @@ async function startServer() {
         username,
         name,
         expiresAt,
-        password: password.trim() ? password : existing.password,
+        password: password ? password : existing.password,
       };
     } else {
-      if (!password.trim()) {
+      if (!password) {
         res.status(400).json({ error: "Senha é obrigatória para novos usuários." });
         return;
       }

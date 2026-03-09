@@ -411,17 +411,19 @@ function UserManagementView() {
     e.preventDefault();
     setError('');
 
-    if (!newUsername || !newName) {
+    if (!(newUsername || '').trim() || !(newName || '').trim()) {
       setError('Preencha pelo menos Nome e Usuário.');
       return;
     }
 
-    if (!editingUser && !newPassword) {
+    if (!editingUser && !(newPassword || '').trim()) {
       setError('Senha é obrigatória para novos usuários.');
       return;
     }
 
     const username = (newUsername || '').trim();
+    const normalizedName = (newName || '').trim();
+    const normalizedPassword = (newPassword || '').trim();
     
     if (username.toLowerCase() === 'admin') {
       setError('O nome "admin" é reservado.');
@@ -445,8 +447,8 @@ function UserManagementView() {
         body: JSON.stringify({
           adminCode: getAdminCode(),
           username,
-          name: newName,
-          password: newPassword,
+          name: normalizedName,
+          password: normalizedPassword,
           expiresAt,
         }),
       });
@@ -2041,7 +2043,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
           setUserLocation(null);
           setGettingLocation(false);
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 5 * 60 * 1000 }
       );
     } else {
       setUserLocation(null);
@@ -2213,12 +2215,41 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
   };
 
   const handleGetAIInsights = async () => {
+    if (isLoadingInsight) return;
     setIsLoadingInsight(true);
     try {
+      const categoryStats = categories.map((cat) => {
+        const catItems = items.filter((item) => item.categoryId === cat.id);
+        const totalQuantity = catItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+        const selectedQuantity = catItems
+          .filter((item) => item.isSelectedForSum !== false)
+          .reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+        const withTickProtocol = catItems.filter((item) => Number(item.tickProtocolDays) > 0).length;
+        return {
+          id: cat.id,
+          name: cat.name,
+          icon: cat.icon,
+          itemCount: catItems.length,
+          totalQuantity,
+          selectedQuantity,
+          withTickProtocol,
+        };
+      });
+
+      const payloadSummary = {
+        categories: categoryStats,
+        totals: {
+          categoryCount: categories.length,
+          itemCount: items.length,
+          selectedTotal,
+          alertsCount,
+        },
+      };
+
       const response = await apiFetch('/api/ai/inventory-insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categories, items }),
+        body: JSON.stringify(payloadSummary),
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
@@ -2285,31 +2316,33 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
            </div>
            <h1 className="font-serif italic font-bold text-[22px] truncate max-w-[165px] text-[#f2f2f2]">{settings.farmName || 'AgroGestão'}</h1>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
            <button 
              onClick={handleGetAIInsights}
              disabled={isLoadingInsight}
-             className="p-2.5 bg-amber-500/20 rounded-2xl border border-amber-500/30 text-amber-400 flex-shrink-0"
+             className="h-11 w-11 bg-amber-500/20 rounded-2xl border border-amber-500/30 text-amber-300 flex-shrink-0 flex items-center justify-center shadow-lg"
              title="Análise IA"
            >
-             {isLoadingInsight ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+             {isLoadingInsight ? <Loader2 className="w-5 h-5 animate-spin" /> : <Brain className="w-5 h-5" />}
            </button>
            <button 
              onClick={handleGetMapsInsights}
              disabled={isLoadingMapsInsight}
-             className="p-2.5 bg-blue-500/20 rounded-2xl border border-blue-500/30 text-blue-300 flex-shrink-0"
+             className="h-11 w-11 bg-blue-500/20 rounded-2xl border border-blue-500/30 text-blue-200 flex-shrink-0 flex items-center justify-center shadow-lg"
              title="Explorar Mapa"
            >
-             {isLoadingMapsInsight ? <Loader2 className="w-4 h-4 animate-spin" /> : <Map className="w-4 h-4" />}
+             {isLoadingMapsInsight ? <Loader2 className="w-5 h-5 animate-spin" /> : <Map className="w-5 h-5" />}
            </button>
            <span
-             className="bg-red-500/10 px-2.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wide text-red-300 border border-red-500/30 flex items-center gap-1.5 flex-shrink-0"
+             className="bg-red-500/15 px-3 py-2 rounded-xl text-sm font-black uppercase tracking-wide text-red-200 border border-red-500/40 flex items-center gap-2 flex-shrink-0 shadow-lg"
              title="Alertas ativos"
            >
-             <AlertTriangle className="w-3.5 h-3.5" /> {alertsCount}
+             <AlertTriangle className="w-4 h-4" /> {alertsCount}
            </span>
-           <span className="bg-[#c9a15a]/10 px-2.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wide text-[#e6cc98] border border-[#c9a15a]/20 flex-shrink-0">T: {selectedTotal}</span>
-           <button onClick={() => setIsSettingsOpen(true)} className="p-2.5 bg-white/5 rounded-2xl border border-white/10 text-zinc-300 flex-shrink-0"><Settings className="w-4 h-4" /></button>
+           <span className="bg-[#c9a15a]/15 px-3 py-2 rounded-xl text-sm font-black uppercase tracking-wide text-[#f2ddaf] border border-[#c9a15a]/30 flex-shrink-0 flex items-center gap-2 shadow-lg">
+             <Beef className="w-4 h-4" /> {selectedTotal}
+           </span>
+           <button onClick={() => setIsSettingsOpen(true)} className="h-11 w-11 bg-white/10 rounded-2xl border border-white/20 text-zinc-100 flex-shrink-0 flex items-center justify-center shadow-lg"><Settings className="w-5 h-5" /></button>
         </div>
       </header>
 
@@ -3052,25 +3085,25 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
               localStorage.setItem(OPEN_FARM_SETTINGS_KEY, '1');
               setActiveTab('farm');
             }}
-            className="h-12 w-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-[#5a5a40]/30 hover:text-[#d2b48c] transition-all shadow-xl backdrop-blur-sm group"
+            className="h-12 w-12 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center text-zinc-100 hover:bg-[#5a5a40]/30 hover:text-[#d2b48c] transition-all shadow-xl backdrop-blur-sm group"
             title="Configurações"
           >
-            <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+            <Settings className="w-6 h-6 group-hover:rotate-90 transition-transform" />
           </button>
           <button
             onClick={onManualSync}
             disabled={isSyncing}
-            className="h-12 w-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-[#5a5a40]/30 hover:text-[#d2b48c] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl backdrop-blur-sm group"
+            className="h-12 w-12 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center text-zinc-100 hover:bg-[#5a5a40]/30 hover:text-[#d2b48c] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl backdrop-blur-sm group"
             title="Atualizar agora"
           >
-            <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-90'} transition-transform`} />
+            <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-90'} transition-transform`} />
           </button>
           <button 
             onClick={onLogout}
-            className="h-12 w-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-red-500/20 hover:text-red-400 transition-all shadow-xl backdrop-blur-sm group"
+            className="h-12 w-12 bg-red-500/15 border border-red-400/40 rounded-2xl flex items-center justify-center text-red-200 hover:bg-red-500/30 hover:text-red-100 transition-all shadow-xl backdrop-blur-sm group"
             title="Sair"
           >
-            <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+            <LogOut className="w-6 h-6 group-hover:scale-110 transition-transform" />
           </button>
         </div>
       </header>
@@ -3180,8 +3213,7 @@ const ensureSyncClientId = (): string => {
   return generated;
 };
 
-const DEFAULT_NATIVE_API_BASE = 'https://faz-3ezg.onrender.com';
-const DEFAULT_NATIVE_API_BASE_FALLBACK = 'https://app.fazendaon.com';
+const DEFAULT_NATIVE_API_BASE = ((import.meta as any).env?.VITE_DEFAULT_NATIVE_API_BASE || '').trim();
 const OPEN_FARM_SETTINGS_KEY = '__open_farm_settings';
 const OFFLINE_AUTH_KEY = '__offline_auth_v1';
 const OFFLINE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -3197,11 +3229,21 @@ const isNativeRuntime = (): boolean => {
   return protocol === 'capacitor:' || protocol === 'file:';
 };
 
-const getApiBaseUrl = (): string => {
-  if (isNativeRuntime()) return DEFAULT_NATIVE_API_BASE;
+const getExplicitApiBase = (): string => {
   const raw = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
-  if (raw) return raw.replace(/\/$/, '');
-  return '';
+  return /^https?:\/\//i.test(raw) ? raw.replace(/\/$/, '') : '';
+};
+
+const getNativeApiBases = (): string[] => {
+  const bases = [getExplicitApiBase(), DEFAULT_NATIVE_API_BASE].filter(Boolean);
+  return Array.from(new Set(bases));
+};
+
+const getApiBaseUrl = (): string => {
+  if (isNativeRuntime()) {
+    return getNativeApiBases()[0] || DEFAULT_NATIVE_API_BASE;
+  }
+  return getExplicitApiBase();
 };
 
 const buildApiUrl = (path: string): string => {
@@ -3277,7 +3319,7 @@ const refreshOfflineWindowForUser = (username: string, user?: User) => {
 
 const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => {
   if (isNativeRuntime()) {
-    const url = `${DEFAULT_NATIVE_API_BASE}${path}`;
+    const bases = getNativeApiBases();
     const method = (init?.method || 'GET').toUpperCase();
     const rawHeaders = init?.headers;
     const headers: Record<string, string> = {};
@@ -3306,42 +3348,56 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
       }
     }
 
-    const nativeResponse = await CapacitorHttp.request({
-      url,
-      method,
-      headers,
-      data,
-      readTimeout: 30000,
-      connectTimeout: 30000,
-    });
+    if (bases.length === 0) {
+      throw new Error('API base nativa não configurada. Defina VITE_API_BASE_URL ou VITE_DEFAULT_NATIVE_API_BASE.');
+    }
 
-    const responseBody =
-      typeof nativeResponse.data === 'string'
-        ? nativeResponse.data
-        : JSON.stringify(nativeResponse.data ?? {});
-    return new Response(responseBody, {
-      status: nativeResponse.status,
-      headers: nativeResponse.headers as HeadersInit,
-    });
+    let lastError: unknown = null;
+    for (const base of bases) {
+      try {
+        const nativeResponse = await CapacitorHttp.request({
+          url: `${base}${path}`,
+          method,
+          headers,
+          data,
+          readTimeout: 30000,
+          connectTimeout: 30000,
+        });
+
+        const responseBody =
+          typeof nativeResponse.data === 'string'
+            ? nativeResponse.data
+            : JSON.stringify(nativeResponse.data ?? {});
+        return new Response(responseBody, {
+          status: nativeResponse.status,
+          headers: nativeResponse.headers as HeadersInit,
+        });
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('Network error');
   }
 
-  const explicit = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
-  const explicitIsHttp = /^https?:\/\//i.test(explicit);
-  const isApiPath = path.startsWith('/api/');
-  const bases = explicitIsHttp
-    ? [explicit.replace(/\/$/, '')]
-    : isApiPath
-      ? [DEFAULT_NATIVE_API_BASE]
-      : [''];
+  const explicit = getExplicitApiBase();
+  const explicitIsHttp = !!explicit;
+  const bases = explicitIsHttp ? [explicit.replace(/\/$/, '')] : [''];
 
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     for (const base of bases) {
       const url = base ? `${base}${path}` : path;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       try {
-        return await fetch(url, init || {});
+        return await fetch(url, {
+          ...(init || {}),
+          signal: init?.signal || controller.signal,
+        });
       } catch (error) {
         lastError = error;
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -3386,11 +3442,19 @@ const runConnectivityDiagnostics = async (): Promise<DiagnosticItem[]> => {
     }
   };
 
-  await test('Health direto (onrender)', async () => {
-    const r = await fetch(`${DEFAULT_NATIVE_API_BASE}/api/health`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.text();
-  });
+  if (DEFAULT_NATIVE_API_BASE) {
+    await test('Health direto (fallback nativo)', async () => {
+      const r = await fetch(`${DEFAULT_NATIVE_API_BASE}/api/health`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.text();
+    });
+  } else {
+    results.push({
+      name: 'Health direto (fallback nativo)',
+      ok: true,
+      detail: 'não configurado',
+    });
+  }
 
   await test('Health via apiFetch', async () => {
     const r = await apiFetch('/api/health');
