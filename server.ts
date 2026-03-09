@@ -28,7 +28,8 @@ type ManagedUser = {
 
 const SYNC_FILE = path.resolve(process.cwd(), ".sync-state.json");
 const USERS_FILE = path.resolve(process.cwd(), ".users-state.json");
-const ADMIN_CODE = process.env.ADMIN_CODE || "ADMIN123";
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || "RKI").trim();
+const ADMIN_CODE = process.env.ADMIN_CODE || "153720";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 const getAiClient = (): GoogleGenAI | null => {
@@ -105,7 +106,10 @@ const saveSyncState = (state: SyncPayload) => {
 };
 
 const isAdminRequest = (req: express.Request): boolean => {
-  const code = String(req.header("x-admin-code") || "").trim();
+  const code =
+    String(req.header("x-admin-code") || "").trim() ||
+    String(req.query?.adminCode || "").trim() ||
+    String((req.body as any)?.adminCode || "").trim();
   return code.length > 0 && code === ADMIN_CODE;
 };
 
@@ -152,6 +156,35 @@ async function startServer() {
     }
 
     res.json({ ok: true, user: sanitizeUser(user) });
+  });
+
+  app.post("/api/auth/admin", (req, res) => {
+    const username = String(req.body?.username || "").trim().toLowerCase();
+    const password = String(req.body?.password || "").trim();
+    if (!username) {
+      res.status(400).json({ error: "Usuário admin é obrigatório." });
+      return;
+    }
+    if (!password) {
+      res.status(400).json({ error: "Senha do admin é obrigatória." });
+      return;
+    }
+    if (username !== ADMIN_USERNAME.toLowerCase()) {
+      res.status(401).json({ error: "Usuário admin inválido." });
+      return;
+    }
+    if (password !== ADMIN_CODE) {
+      res.status(401).json({ error: "Código de admin inválido." });
+      return;
+    }
+    res.json({
+      ok: true,
+      user: {
+        username: ADMIN_USERNAME,
+        name: "Administrador",
+        role: "admin",
+      },
+    });
   });
 
   app.get("/api/users", (req, res) => {
