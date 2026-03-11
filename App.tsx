@@ -3385,7 +3385,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
       </header>
 
       {/* Tab Navigation */}
-      <div className="w-full max-w-md mb-4 bg-black/40 border border-white/10 p-1 rounded-[2rem] flex flex-wrap justify-center shadow-2xl backdrop-blur-md gap-1">
+      <div className="w-full max-w-md mb-4 bg-black/40 border border-white/10 p-1 rounded-[2rem] flex flex-nowrap overflow-x-auto no-scrollbar justify-start shadow-2xl backdrop-blur-md gap-1">
         <button
           onClick={() => setActiveTab('camera')}
           className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
@@ -3398,7 +3398,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
         </button>
         <button
           onClick={() => setActiveTab('drpasto')}
-          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${
             activeTab === 'drpasto'
               ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
               : 'text-zinc-500 hover:text-zinc-300'
