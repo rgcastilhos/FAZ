@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { stream ->
+        keystoreProperties.load(stream)
+    }
+}
+def isReleaseBuildRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+
 android {
     namespace = "com.fazendaon.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,9 +25,30 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (!keystorePropertiesFile.exists()) {
+                if (isReleaseBuildRequested) {
+                    throw new GradleException("Missing android/keystore.properties. Release builds must be signed with the same keystore.")
+                }
+                // Allow non-release tasks (e.g. debug) to run without signing config.
+                return
+            }
+            def requiredKeys = ['storeFile','storePassword','keyAlias','keyPassword']
+            def missing = requiredKeys.findAll { !keystoreProperties.containsKey(it) || !keystoreProperties[it] }
+            if (!missing.isEmpty()) {
+                throw new GradleException("Invalid android/keystore.properties. Missing keys: ${missing.join(', ')}")
+            }
+            storeFile file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

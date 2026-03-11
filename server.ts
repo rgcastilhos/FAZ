@@ -477,6 +477,97 @@ async function startServer() {
     }
   });
 
+  app.post("/api/ai/dr-pasto", async (req, res) => {
+    try {
+      const ai = getAiClient();
+      if (!ai) {
+        res.status(500).json({ error: "GEMINI_API_KEY não configurada no servidor." });
+        return;
+      }
+
+      const notes = String(req.body?.notes || "").trim();
+      const inlineData = req.body?.inlineData as { mimeType?: string; data?: string } | undefined;
+      if (!inlineData?.mimeType || !inlineData?.data) {
+        res.status(400).json({ error: "Imagem inválida." });
+        return;
+      }
+
+      const prompt = `
+Você é o Dr.Pasto, um "veterinário de bolso" para pecuaristas. Analise a FOTO do animal e aponte hipóteses (suspeitas) de doenças/condições com base apenas em sinais visuais.
+
+Regras:
+- Não dê diagnóstico definitivo. Use "suspeita" e "diferenciais".
+- Se a imagem não permitir, diga que não é possível concluir e peça mais informações.
+- Sempre inclua orientações de segurança e quando chamar um veterinário.
+- Assuma bovinos por padrão, mas se não for bovino, mencione a espécie provável.
+- Responda em português do Brasil.
+
+Contexto adicional do pecuarista (pode estar vazio): ${notes || "(nenhum)"}
+
+Retorne no schema solicitado.
+      `.trim();
+
+      const parts: any[] = [
+        {
+          inlineData: {
+            mimeType: inlineData.mimeType,
+            data: inlineData.data,
+          },
+        },
+        { text: prompt },
+      ];
+
+      const response = await generateContentWithRetry(
+        ai,
+        {
+          contents: { parts },
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                especie_provavel: { type: Type.STRING },
+                sinais_visuais: { type: Type.ARRAY, items: { type: Type.STRING } },
+                suspeitas: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      doenca: { type: Type.STRING },
+                      probabilidade: { type: Type.NUMBER },
+                      justificativa_visual: { type: Type.STRING },
+                      nivel_urgencia: { type: Type.STRING },
+                      acoes_imediatas: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    },
+                    required: ["doenca", "probabilidade", "justificativa_visual", "nivel_urgencia", "acoes_imediatas"],
+                  },
+                },
+                perguntas_para_confirmar: { type: Type.ARRAY, items: { type: Type.STRING } },
+                quando_chamar_veterinario: { type: Type.STRING },
+                aviso: { type: Type.STRING },
+              },
+              required: [
+                "especie_provavel",
+                "sinais_visuais",
+                "suspeitas",
+                "perguntas_para_confirmar",
+                "quando_chamar_veterinario",
+                "aviso",
+              ],
+            },
+          },
+        },
+        ["gemini-3-flash-preview", "gemini-2.5-flash"],
+      );
+
+      const text = response.text || "";
+      const data = JSON.parse(text);
+      res.json({ data });
+    } catch (error: any) {
+      sendAiError(res, error, "Falha na análise veterinária.");
+    }
+  });
+
   app.post("/api/ai/inventory-insights", async (req, res) => {
     try {
       const ai = getAiClient();

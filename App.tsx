@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
+import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle, Stethoscope } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import { Camera as CapacitorCamera } from '@capacitor/camera';
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
 
 // Default admin code to access user management
@@ -55,6 +55,7 @@ interface AppSettings {
   farmName: string;
   backgroundImage?: string;
   userEmail?: string;
+  apiBaseUrl?: string;
   cardOptions?: CardOptions;
   dashboardBgColor?: string;
   loginBgImage?: string;
@@ -1754,6 +1755,259 @@ function TrainingView({ user }: { user: User | null }) {
     </div>
   );
 }
+
+type DrPastoSuspeita = {
+  doenca: string;
+  probabilidade: number;
+  justificativa_visual: string;
+  nivel_urgencia: string;
+  acoes_imediatas: string[];
+};
+
+type DrPastoResult = {
+  especie_provavel: string;
+  sinais_visuais: string[];
+  suspeitas: DrPastoSuspeita[];
+  perguntas_para_confirmar: string[];
+  quando_chamar_veterinario: string;
+  aviso: string;
+};
+
+function DrPastoView({ user }: { user: User }) {
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [inlineData, setInlineData] = useState<{ mimeType: string; data: string } | null>(null);
+  const [notes, setNotes] = useState<string>('');
+  const [result, setResult] = useState<DrPastoResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const capture = async (source: CameraSource) => {
+    setError(null);
+    setResult(null);
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const current = await CapacitorCamera.checkPermissions();
+        if (current.camera !== 'granted') {
+          const requested = await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+          if (requested.camera !== 'granted') {
+            throw new Error('Permissão da câmera negada no Android.');
+          }
+        }
+      }
+
+      const photo = await CapacitorCamera.getPhoto({
+        quality: 75,
+        allowEditing: false,
+        resultType: CameraResultType.Base64,
+        source,
+      });
+
+      const base64 = (photo as any)?.base64String as string | undefined;
+      if (!base64) {
+        throw new Error('Falha ao capturar a imagem.');
+      }
+
+      const format = String((photo as any)?.format || 'jpeg').toLowerCase();
+      const mimeType =
+        format === 'png' ? 'image/png' :
+        format === 'webp' ? 'image/webp' :
+        'image/jpeg';
+
+      setInlineData({ mimeType, data: base64 });
+      setImageDataUrl(`data:${mimeType};base64,${base64}`);
+    } catch (e: any) {
+      console.error('Dr.Pasto capture error:', e);
+      setError(e?.message || 'Erro ao capturar foto.');
+    }
+  };
+
+  const analyze = async () => {
+    if (!inlineData) {
+      setError('Tire uma foto primeiro.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const response = await apiFetch('/api/ai/dr-pasto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inlineData, notes }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        throw new Error(getApiErrorMessage(payload, response.status, 'Falha na análise veterinária.'));
+      }
+
+      setResult(payload?.data || null);
+    } catch (e: any) {
+      console.error('Dr.Pasto analyze error:', e);
+      setError(e?.message || 'Erro ao analisar imagem.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+      <div className="bg-white/90 backdrop-blur-md rounded-[2.5rem] p-8 shadow-2xl border border-white/20">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="bg-[#5a5a40]/20 p-3 rounded-2xl border border-[#5a5a40]/30">
+            <Stethoscope className="w-6 h-6 text-[#5a5a40]" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-2xl font-serif italic font-bold text-zinc-900 tracking-tight">Dr.Pasto</h2>
+            <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">Veterinário de bolso (suspeitas por foto)</p>
+          </div>
+        </div>
+
+        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 text-[11px] text-amber-900 leading-relaxed">
+          <p className="font-bold uppercase tracking-widest text-[10px] mb-1">Aviso</p>
+          <p>
+            A análise é apenas orientativa e não substitui um veterinário. Se houver prostração intensa, falta de ar, sangramento, convulsões, ou vários animais afetados, chame um veterinário imediatamente.
+          </p>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-4">
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={() => capture(CameraSource.Camera)}
+              className="flex-1 min-w-[140px] bg-[#5a5a40] hover:bg-[#4a4a35] text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] transition-all shadow-lg shadow-[#5a5a40]/20 active:scale-[0.99]"
+            >
+              Tirar Foto
+            </button>
+            <button
+              onClick={() => capture(CameraSource.Photos)}
+              className="flex-1 min-w-[140px] bg-black/10 hover:bg-black/20 text-zinc-800 py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] transition-all border border-black/10 active:scale-[0.99]"
+            >
+              Galeria
+            </button>
+          </div>
+
+          {imageDataUrl && (
+            <div className="rounded-[2rem] overflow-hidden border border-zinc-200 shadow-xl bg-white">
+              <img src={imageDataUrl} alt="Foto para análise" className="w-full h-64 object-cover" />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 ml-1">
+              Observações (opcional)
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Ex: babando, falta de apetite, mancando, lesão na pele, febre, quantos animais, idade aproximada..."
+              className="w-full bg-white border border-zinc-200 rounded-2xl p-4 text-sm text-zinc-900 outline-none focus:border-[#d2b48c] min-h-[110px]"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-900 text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={analyze}
+            disabled={isAnalyzing || !inlineData}
+            className="w-full bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed text-white py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.25em] transition-all shadow-2xl shadow-black/20 flex items-center justify-center gap-3"
+          >
+            {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Brain className="w-5 h-5" />}
+            {isAnalyzing ? 'Analisando...' : 'Analisar Foto'}
+          </button>
+
+          {result && (
+            <div className="mt-2 space-y-4">
+              <div className="bg-zinc-950 text-zinc-100 rounded-[2rem] p-6 border border-white/10 shadow-2xl">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d2b48c]">Espécie provável</p>
+                <p className="text-lg font-serif italic font-bold mt-1">{result.especie_provavel}</p>
+                {Array.isArray(result.sinais_visuais) && result.sinais_visuais.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Sinais visuais</p>
+                    <ul className="mt-2 space-y-1 text-sm text-zinc-200">
+                      {result.sinais_visuais.slice(0, 8).map((s, idx) => (
+                        <li key={`sig-${idx}`} className="flex gap-2">
+                          <span className="text-[#d2b48c]">•</span>
+                          <span>{s}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {Array.isArray(result.suspeitas) && result.suspeitas.length > 0 && (
+                <div className="bg-white/90 backdrop-blur-md rounded-[2.5rem] p-6 shadow-2xl border border-white/20">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-3">Suspeitas (diferenciais)</p>
+                  <div className="space-y-4">
+                    {result.suspeitas.slice(0, 3).map((s, idx) => (
+                      <div key={`sus-${idx}`} className="rounded-[2rem] p-5 border border-zinc-200 bg-white">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-lg font-serif italic font-bold text-zinc-900">{s.doenca}</p>
+                            <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mt-1">
+                              Urgência: {s.nivel_urgencia} | Prob.: {Number.isFinite(s.probabilidade) ? `${Math.round(s.probabilidade)}%` : 'n/a'}
+                            </p>
+                          </div>
+                          <div className="flex-shrink-0 bg-[#5a5a40]/10 border border-[#5a5a40]/20 rounded-2xl p-2">
+                            <AlertTriangle className="w-5 h-5 text-[#5a5a40]" />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-sm text-zinc-700 leading-relaxed">{s.justificativa_visual}</p>
+                        {Array.isArray(s.acoes_imediatas) && s.acoes_imediatas.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Ações imediatas</p>
+                            <ul className="mt-2 space-y-1 text-sm text-zinc-800">
+                              {s.acoes_imediatas.slice(0, 8).map((a, aidx) => (
+                                <li key={`acao-${idx}-${aidx}`} className="flex gap-2">
+                                  <span className="text-[#5a5a40]">•</span>
+                                  <span>{a}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-black/40 border border-white/10 rounded-[2rem] p-5 text-zinc-200 backdrop-blur-md">
+                {Array.isArray(result.perguntas_para_confirmar) && result.perguntas_para_confirmar.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d2b48c]">Perguntas para confirmar</p>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {result.perguntas_para_confirmar.slice(0, 6).map((q, idx) => (
+                        <li key={`q-${idx}`} className="flex gap-2">
+                          <span className="text-[#d2b48c]">•</span>
+                          <span>{q}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d2b48c]">Quando chamar veterinário</p>
+                  <p className="mt-2 text-sm leading-relaxed">{result.quando_chamar_veterinario}</p>
+                </div>
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Aviso</p>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-300">{result.aviso}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FatteningSimulationView({ user }: { user: User }) {
   const storagePrefix = `${user.username}_`;
   const [simulation, setSimulation] = useState(() => {
@@ -2773,6 +3027,22 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
                       <RefreshCw className="w-3 h-3 text-[#d2b48c]" /> Sincronização
                    </h3>
                    <div className="space-y-3">
+                      {isNativeRuntime() && (
+                        <div className="space-y-2">
+                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">
+                            Servidor (API Base)
+                          </label>
+                          <input
+                            placeholder="https://SEU-SERVICO.onrender.com"
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-white outline-none focus:border-[#d2b48c]"
+                            value={settings.apiBaseUrl || ''}
+                            onChange={(e) => setSettings(prev => ({ ...prev, apiBaseUrl: e.target.value }))}
+                          />
+                          <p className="text-[10px] text-zinc-500 leading-relaxed ml-1">
+                            Cole aqui o link publico do Render (Live URL). Isso habilita IA e sincronizacao no app instalado.
+                          </p>
+                        </div>
+                      )}
                       <input 
                         placeholder="E-mail para Sincronia" 
                         className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-white outline-none focus:border-[#d2b48c]"
@@ -3033,7 +3303,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
 }
 
 function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { user: User, onLogout: () => void, onUpdateUser: (user: User) => void, onManualSync: () => void, isSyncing: boolean, key?: string }) {
-  const [activeTab, setActiveTab] = useState<'camera' | 'users' | 'farm' | 'training' | 'fattening'>('camera');
+  const [activeTab, setActiveTab] = useState<'camera' | 'drpasto' | 'users' | 'farm' | 'training' | 'fattening'>('camera');
   const storagePrefix = `${user.username}_`;
   const isAdmin = user.role === 'admin';
 
@@ -3055,6 +3325,12 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
     localStorage.setItem(`${storagePrefix}agro_settings`, JSON.stringify(settings));
     if (settings.loginBgImage) {
       localStorage.setItem('global_login_bg', settings.loginBgImage);
+    }
+    // Native API base override is stored globally (device-level), not per user.
+    try {
+      setStoredNativeApiBase(settings.apiBaseUrl || '');
+    } catch {
+      // ignore
     }
   }, [settings, storagePrefix]);
 
@@ -3121,6 +3397,16 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
           <Camera className="w-3.5 h-3.5" /> Câmera
         </button>
         <button
+          onClick={() => setActiveTab('drpasto')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'drpasto'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <Stethoscope className="w-3.5 h-3.5" /> Dr.Pasto
+        </button>
+        <button
           onClick={() => setActiveTab('farm')}
           className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
             activeTab === 'farm' 
@@ -3168,6 +3454,8 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
       <main className="w-full max-w-md flex-1">
         {activeTab === 'camera' ? (
           <CameraView user={user} />
+        ) : activeTab === 'drpasto' ? (
+          <DrPastoView user={user} />
         ) : activeTab === 'farm' ? (
           <FarmView user={user} settings={settings} setSettings={setSettings} />
         ) : activeTab === 'fattening' ? (
@@ -3214,11 +3502,37 @@ const ensureSyncClientId = (): string => {
 };
 
 const DEFAULT_NATIVE_API_BASE = ((import.meta as any).env?.VITE_DEFAULT_NATIVE_API_BASE || '').trim();
+const NATIVE_API_BASE_OVERRIDE_KEY = '__native_api_base_override_v1';
 const OPEN_FARM_SETTINGS_KEY = '__open_farm_settings';
 const OFFLINE_AUTH_KEY = '__offline_auth_v1';
 const OFFLINE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 const ADMIN_CODE_KEY = '__admin_code';
 const ADMIN_USERNAME_KEY = '__admin_username';
+
+const normalizeApiBase = (raw: string): string => {
+  const value = String(raw || '').trim().replace(/\/$/, '');
+  return /^https?:\/\//i.test(value) ? value : '';
+};
+
+const getStoredNativeApiBase = (): string => {
+  try {
+    if (typeof localStorage === 'undefined') return '';
+    return normalizeApiBase(localStorage.getItem(NATIVE_API_BASE_OVERRIDE_KEY) || '');
+  } catch {
+    return '';
+  }
+};
+
+const setStoredNativeApiBase = (raw: string): void => {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const value = normalizeApiBase(raw);
+    if (value) localStorage.setItem(NATIVE_API_BASE_OVERRIDE_KEY, value);
+    else localStorage.removeItem(NATIVE_API_BASE_OVERRIDE_KEY);
+  } catch {
+    // ignore
+  }
+};
 
 const isNativeRuntime = (): boolean => {
   const cap = (window as any)?.Capacitor;
@@ -3235,7 +3549,7 @@ const getExplicitApiBase = (): string => {
 };
 
 const getNativeApiBases = (): string[] => {
-  const bases = [getExplicitApiBase(), DEFAULT_NATIVE_API_BASE].filter(Boolean);
+  const bases = [getStoredNativeApiBase(), getExplicitApiBase(), DEFAULT_NATIVE_API_BASE].filter(Boolean);
   return Array.from(new Set(bases));
 };
 
