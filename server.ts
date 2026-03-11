@@ -266,10 +266,24 @@ async function startServer() {
         : process.env.GOOGLE_API_KEY
           ? "GOOGLE_API_KEY"
           : "none",
+      renderGitCommit:
+        (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.SOURCE_VERSION || "").trim() ||
+        null,
       dataDir: DATA_DIR,
       usersFile: USERS_FILE,
       usersFileExists,
       usersCount: usersState.length,
+    });
+  });
+
+  app.get("/api/version", (req, res) => {
+    res.json({
+      commit:
+        (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.SOURCE_VERSION || "").trim() ||
+        null,
+      service: (process.env.RENDER_SERVICE_NAME || "").trim() || null,
+      env: (process.env.NODE_ENV || "").trim() || null,
+      now: new Date().toISOString(),
     });
   });
 
@@ -699,7 +713,20 @@ Retorne no schema solicitado.
     app.use(vite.middlewares);
   } else {
     // Production: serve static files
-    app.use(express.static("dist"));
+    // - index.html: no-store so clients get latest HTML (avoids "stuck" UI after deploy)
+    // - hashed assets: cache long-term
+    app.use(
+      express.static("dist", {
+        setHeaders: (res, filePath) => {
+          const normalized = filePath.replace(/\\/g, "/");
+          if (normalized.endsWith("/index.html")) {
+            res.setHeader("Cache-Control", "no-store");
+            return;
+          }
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        },
+      }),
+    );
   }
 
   app.listen(PORT, "0.0.0.0", () => {
