@@ -10,6 +10,10 @@ coverage/
 *.log
 .idea/
 
+# Server state files (can contain user data / credentials)
+.users-state.json
+.sync-state.json
+
 # Using Android gitignore template: https://github.com/github/gitignore/blob/HEAD/Android.gitignore
 
 # Built application files

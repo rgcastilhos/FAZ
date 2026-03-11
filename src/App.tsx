@@ -1520,7 +1520,13 @@ function TrainingView({ user }: { user: User | null }) {
   const extractEstimatedWeight = (rawText: string): number => {
     try {
       const parsed = JSON.parse(rawText);
-      const value = Number(parsed?.peso);
+      const candidates = [
+        parsed?.peso_estimado_kg,
+        parsed?.pesoEstimadoKg,
+        parsed?.peso,
+        parsed?.weight,
+      ];
+      const value = Number(candidates.find((c: any) => c !== null && c !== undefined));
       if (!Number.isNaN(value)) return value;
     } catch {
       // Fallback: model may return plain text instead of strict JSON.
@@ -1561,12 +1567,21 @@ function TrainingView({ user }: { user: User | null }) {
       }
 
       const payload = await res.json().catch(() => ({} as any));
-      const rawText = JSON.stringify(payload?.data || {});
-      const estimatedWeight = extractEstimatedWeight(rawText);
+      const data = payload?.data;
+      let estimatedWeight =
+        data && typeof data === 'object'
+          ? Number((data as any).peso_estimado_kg ?? (data as any).peso)
+          : Number.NaN;
+
+      if (Number.isNaN(estimatedWeight)) {
+        const rawText = typeof data === 'string' ? data : JSON.stringify(data || {});
+        estimatedWeight = extractEstimatedWeight(rawText);
+      }
+
       if (Number.isNaN(estimatedWeight) || estimatedWeight <= 0) {
         throw new Error("A IA não retornou um peso válido.");
       }
-      setEstimation(estimatedWeight);
+      setEstimation(Math.round(estimatedWeight));
     } catch (err: any) {
       setError("Erro na estimativa: " + err.message);
     } finally {

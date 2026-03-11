@@ -3,7 +3,7 @@ import { createServer as createViteServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, type GenerateContentParameters } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 
@@ -82,7 +82,7 @@ const isRetryableAiError = (error: any): boolean => {
 
 const generateContentWithRetry = async (
   ai: GoogleGenAI,
-  request: Record<string, any>,
+  request: Omit<GenerateContentParameters, "model">,
   preferredModels: string[],
   attemptsPerModel = 3,
 ) => {
