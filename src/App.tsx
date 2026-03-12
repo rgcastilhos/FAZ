@@ -3884,32 +3884,37 @@ function DrPastoView({ user }: { user: User }) {
             <div className="bg-zinc-950/40 border border-white/10 rounded-[2rem] p-5">
               <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-3">Suspeitas (IA)</p>
               <div className="space-y-3">
-                {analysis.suspeitas.slice(0, 5).map((item, idx) => (
-                  <div key={`suspeita-${idx}`} className="bg-black/30 border border-white/10 rounded-2xl p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-bold text-zinc-100">{item.doenca}</p>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-[#d2b48c]">
-                        {Math.round(toPercent(item.probabilidade))}%
-                      </p>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-1">
-                      Tenho <span className="font-bold text-zinc-200">{Math.round(toPercent(item.probabilidade))}%</span> de certeza que seja{' '}
-                      <span className="font-bold text-zinc-200">{item.doenca}</span> (estimativa da IA).
-                    </p>
-                    <p className="text-xs text-zinc-400 mt-1">Urgencia: {item.nivel_urgencia}</p>
-                    <p className="text-sm text-zinc-200 mt-3 leading-relaxed">{item.justificativa_visual}</p>
-                    {Array.isArray(item.acoes_imediatas) && item.acoes_imediatas.length > 0 && (
-                      <div className="mt-3">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Acoes imediatas</p>
-                        <ul className="text-sm text-zinc-200 list-disc pl-5 space-y-1">
-                          {item.acoes_imediatas.map((a, aidx) => (
-                            <li key={`acao-${idx}-${aidx}`}>{a}</li>
-                          ))}
-                        </ul>
+                {analysis.suspeitas.slice(0, 5).map((item, idx) => {
+                  const diseaseLabel = String(item.doenca || '').trim() || 'condição não identificada';
+                  const pct = Math.round(toPercent(item.probabilidade));
+
+                  return (
+                    <div key={`suspeita-${idx}`} className="bg-black/30 border border-white/10 rounded-2xl p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-zinc-100">{diseaseLabel}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#d2b48c]">{pct}%</p>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {diseaseLabel !== 'condição não identificada' && (
+                        <p className="text-xs text-zinc-400 mt-1">
+                          Tenho <span className="font-bold text-zinc-200">{pct}%</span> de certeza que seja{' '}
+                          <span className="font-bold text-zinc-200">{diseaseLabel}</span> (estimativa da IA).
+                        </p>
+                      )}
+                      <p className="text-xs text-zinc-400 mt-1">Urgencia: {item.nivel_urgencia}</p>
+                      <p className="text-sm text-zinc-200 mt-3 leading-relaxed">{item.justificativa_visual}</p>
+                      {Array.isArray(item.acoes_imediatas) && item.acoes_imediatas.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Acoes imediatas</p>
+                          <ul className="text-sm text-zinc-200 list-disc pl-5 space-y-1">
+                            {item.acoes_imediatas.map((a, aidx) => (
+                              <li key={`acao-${idx}-${aidx}`}>{a}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
