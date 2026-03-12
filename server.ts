@@ -679,7 +679,7 @@ Retorne no schema solicitado.
 Preciso dos valores em Reais (R$) para o Rio Grande do Sul (NESUI/UFRGS) e média CEPEA.
 Se o preço for por Kg, coloque; se for por Arroba, coloque. Se não achar, coloque 'N/D'.
 
-Formato JSON obrigatório:
+Formato JSON obrigatório (retorne APENAS o JSON, sem marcações markdown ou texto extra):
 {
   "ufrgs": { "boi": "", "vaca": "", "novilho": "", "terneiro": "", "terneira": "" },
   "cepea": { "boi": "", "vaca": "", "novilho": "", "terneiro": "", "terneira": "" }
@@ -690,39 +690,14 @@ Formato JSON obrigatório:
         {
           contents: prompt,
           config: {
-            responseMimeType: "application/json",
-            tools: [{ googleSearch: {} }],
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                ufrgs: {
-                  type: Type.OBJECT,
-                  properties: {
-                    boi: { type: Type.STRING },
-                    vaca: { type: Type.STRING },
-                    novilho: { type: Type.STRING },
-                    terneiro: { type: Type.STRING },
-                    terneira: { type: Type.STRING },
-                  }
-                },
-                cepea: {
-                  type: Type.OBJECT,
-                  properties: {
-                    boi: { type: Type.STRING },
-                    vaca: { type: Type.STRING },
-                    novilho: { type: Type.STRING },
-                    terneiro: { type: Type.STRING },
-                    terneira: { type: Type.STRING },
-                  }
-                }
-              }
-            }
+            tools: [{ googleSearch: {} }]
           }
         },
         ["gemini-2.5-flash"]
       );
 
-      const text = response.text || "{}";
+      let text = response.text || "{}";
+      text = text.replace(/```json/gi, "").replace(/```/g, "").trim();
       const data = JSON.parse(text);
       res.json({ data, fetchedAt: Date.now() });
     } catch (error: any) {
