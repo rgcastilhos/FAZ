@@ -4009,6 +4009,14 @@ const ADMIN_CODE_KEY = '__admin_code';
 const ADMIN_USERNAME_KEY = '__admin_username';
 
 const isNativeRuntime = (): boolean => {
+  // Prefer the Capacitor import; in some builds window.Capacitor is not reliable.
+  try {
+    if (Capacitor?.isNativePlatform && typeof Capacitor.isNativePlatform === 'function') {
+      if (Capacitor.isNativePlatform()) return true;
+    }
+  } catch {
+    // ignore
+  }
   const cap = (window as any)?.Capacitor;
   if (cap?.isNativePlatform && typeof cap.isNativePlatform === 'function') {
     return !!cap.isNativePlatform();
