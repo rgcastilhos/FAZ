@@ -4583,6 +4583,8 @@ function App() {
       await manualSyncRef.current();
     } finally {
       setIsSyncing(false);
+      // Recarrega a página para garantir que o aplicativo pegue a versão mais recente do servidor
+      window.location.reload();
     }
   }, []);
 
