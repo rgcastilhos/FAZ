@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+oiimport React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
@@ -3392,6 +3392,7 @@ function WeatherAlertsView({ user }: { user: User }) {
   const [weather, setWeather] = useState<{
     fetchedAt: number;
     tz?: string;
+    locationName?: string;
     current?: {
       time?: string;
       temperatureC?: number;
@@ -3466,6 +3467,21 @@ function WeatherAlertsView({ user }: { user: User }) {
     setIsLoadingWeather(true);
     setWeatherError(null);
     try {
+      let cityName = '';
+      try {
+        const geoRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=pt`);
+        if (geoRes.ok) {
+          const geoData = await geoRes.json();
+          if (geoData.city && geoData.principalSubdivision) {
+            cityName = `${geoData.city}, ${geoData.principalSubdivision}`;
+          } else if (geoData.locality) {
+            cityName = geoData.locality;
+          }
+        }
+      } catch (e) {
+        // Ignora erro de geocoding
+      }
+
       const url =
         `https://api.open-meteo.com/v1/forecast` +
         `?latitude=${encodeURIComponent(String(coords.latitude))}` +
@@ -3479,6 +3495,7 @@ function WeatherAlertsView({ user }: { user: User }) {
       setWeather({
         fetchedAt: Date.now(),
         tz: String(data?.timezone || ''),
+        locationName: cityName,
         current: {
           time: typeof current?.time === 'string' ? current.time : undefined,
           temperatureC: typeof current?.temperature_2m === 'number' ? current.temperature_2m : undefined,
