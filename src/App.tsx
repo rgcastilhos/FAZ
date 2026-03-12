@@ -3015,7 +3015,9 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
 }
 
 function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { user: User, onLogout: () => void, onUpdateUser: (user: User) => void, onManualSync: () => void, isSyncing: boolean, key?: string }) {
-  const [activeTab, setActiveTab] = useState<'camera' | 'users' | 'farm' | 'training' | 'fattening'>('camera');
+  const [activeTab, setActiveTab] = useState<
+    'camera' | 'users' | 'farm' | 'training' | 'fattening' | 'dr_pasto' | 'cattle_quotes' | 'weather_alerts'
+  >('camera');
   const storagePrefix = `${user.username}_`;
   const isAdmin = user.role === 'admin';
 
@@ -3040,12 +3042,23 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
     }
   }, [settings, storagePrefix]);
 
-  useEffect(() => {
-    const isRestrictedTab = activeTab === 'users' || activeTab === 'training';
-    if (!isAdmin && isRestrictedTab) {
-      setActiveTab('camera');
-    }
-  }, [activeTab, isAdmin]);
+  const RestrictedTabView = ({ tabName }: { tabName: string }) => (
+    <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center gap-2 text-[#d2b48c] mb-3">
+        <Lock className="w-4 h-4" />
+        <h2 className="text-xs font-black uppercase tracking-[0.2em]">Acesso restrito</h2>
+      </div>
+      <p className="text-zinc-300 text-sm leading-relaxed">
+        A aba <span className="font-bold">{tabName}</span> so pode ser acessada por Admin.
+      </p>
+      <button
+        onClick={() => setActiveTab('camera')}
+        className="mt-4 w-full bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 transition-all"
+      >
+        Voltar para Camera
+      </button>
+    </div>
+  );
 
   return (
     <div 
@@ -3122,30 +3135,58 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
         >
           <TrendingUp className="w-3.5 h-3.5" /> Simu.Engorda
         </button>
-        {isAdmin && (
-          <>
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
-                activeTab === 'users' 
-                  ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30' 
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" /> Usuários
-            </button>
-            <button
-              onClick={() => setActiveTab('training')}
-              className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
-                activeTab === 'training' 
-                  ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30' 
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              <Pencil className="w-3.5 h-3.5" /> Treinar
-            </button>
-          </>
-        )}
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'users'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+          title={isAdmin ? 'Usuarios' : 'Acesso restrito (Admin)'}
+        >
+          <Users className="w-3.5 h-3.5" /> Usuários {!isAdmin && <Lock className="w-3 h-3 opacity-70" />}
+        </button>
+        <button
+          onClick={() => setActiveTab('training')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'training'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+          title={isAdmin ? 'Treinar' : 'Acesso restrito (Admin)'}
+        >
+          <Pencil className="w-3.5 h-3.5" /> Treinar {!isAdmin && <Lock className="w-3 h-3 opacity-70" />}
+        </button>
+        <button
+          onClick={() => setActiveTab('dr_pasto')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'dr_pasto'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <Brain className="w-3.5 h-3.5" /> Dr.Pasto
+        </button>
+        <button
+          onClick={() => setActiveTab('cattle_quotes')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'cattle_quotes'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <DollarSign className="w-3.5 h-3.5" /> Cotação do Gado
+        </button>
+        <button
+          onClick={() => setActiveTab('weather_alerts')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'weather_alerts'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" /> Alertas Climáticos
+        </button>
       </div>
       <main className="w-full max-w-md flex-1">
         {activeTab === 'camera' ? (
@@ -3154,14 +3195,254 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
           <FarmView user={user} settings={settings} setSettings={setSettings} />
         ) : activeTab === 'fattening' ? (
           <FatteningSimulationView user={user} />
-        ) : activeTab === 'training' && isAdmin ? (
-          <TrainingView user={user} />
-        ) : activeTab === 'users' && isAdmin ? (
-          <UserManagementView />
+        ) : activeTab === 'users' ? (
+          isAdmin ? <UserManagementView /> : <RestrictedTabView tabName="Usuários" />
+        ) : activeTab === 'training' ? (
+          isAdmin ? <TrainingView user={user} /> : <RestrictedTabView tabName="Treinar" />
+        ) : activeTab === 'dr_pasto' ? (
+          <DrPastoView user={user} />
+        ) : activeTab === 'cattle_quotes' ? (
+          <CattleQuotesView user={user} />
+        ) : activeTab === 'weather_alerts' ? (
+          <WeatherAlertsView user={user} />
         ) : (
           <CameraView user={user} />
         )}
       </main>
+    </div>
+  );
+}
+
+function CattleQuotesView({ user }: { user: User }) {
+  const storageKey = `${user.username}_cattle_quotes_v1`;
+  const [payload, setPayload] = useState(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return { priceArroba: '', source: '', date: '', notes: '' };
+      const parsed = JSON.parse(raw);
+      return {
+        priceArroba: String(parsed?.priceArroba ?? ''),
+        source: String(parsed?.source ?? ''),
+        date: String(parsed?.date ?? ''),
+        notes: String(parsed?.notes ?? ''),
+      };
+    } catch {
+      return { priceArroba: '', source: '', date: '', notes: '' };
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      // Best effort only.
+    }
+  }, [payload, storageKey]);
+
+  return (
+    <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center gap-2 mb-4">
+        <DollarSign className="w-4 h-4 text-[#d2b48c]" />
+        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-[#d2b48c]">Cotação do Gado</h2>
+      </div>
+      <div className="grid grid-cols-1 gap-3">
+        <div>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Preço (@) BRL</label>
+          <input
+            value={payload.priceArroba}
+            onChange={(e) => setPayload((p: any) => ({ ...p, priceArroba: e.target.value }))}
+            inputMode="decimal"
+            placeholder="Ex: 245,50"
+            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Data</label>
+            <input
+              value={payload.date}
+              onChange={(e) => setPayload((p: any) => ({ ...p, date: e.target.value }))}
+              placeholder="Ex: 11/03/2026"
+              className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Fonte</label>
+            <input
+              value={payload.source}
+              onChange={(e) => setPayload((p: any) => ({ ...p, source: e.target.value }))}
+              placeholder="Ex: corretora, app, site"
+              className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Notas</label>
+          <textarea
+            value={payload.notes}
+            onChange={(e) => setPayload((p: any) => ({ ...p, notes: e.target.value }))}
+            placeholder="Observações..."
+            rows={7}
+            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeatherAlertsView({ user }: { user: User }) {
+  const storageKey = `${user.username}_weather_alerts_v1`;
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return { rainMm: '20', heatC: '35', coldC: '5', notes: '' };
+      const parsed = JSON.parse(raw);
+      return {
+        rainMm: String(parsed?.rainMm ?? '20'),
+        heatC: String(parsed?.heatC ?? '35'),
+        coldC: String(parsed?.coldC ?? '5'),
+        notes: String(parsed?.notes ?? ''),
+      };
+    } catch {
+      return { rainMm: '20', heatC: '35', coldC: '5', notes: '' };
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(settings));
+    } catch {
+      // Best effort only.
+    }
+  }, [settings, storageKey]);
+
+  const fetchLocation = () => {
+    setGettingLocation(true);
+    if (!navigator.geolocation) {
+      setLocation(null);
+      setGettingLocation(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setGettingLocation(false);
+      },
+      () => {
+        setLocation(null);
+        setGettingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  return (
+    <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center gap-2 mb-4">
+        <AlertTriangle className="w-4 h-4 text-[#d2b48c]" />
+        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-[#d2b48c]">Alertas Climáticos</h2>
+      </div>
+
+      <div className="flex gap-2 items-center mb-4">
+        <button
+          onClick={fetchLocation}
+          disabled={gettingLocation}
+          className="flex-1 bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        >
+          {gettingLocation ? 'Obtendo...' : 'Usar localização'}
+        </button>
+        <div className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
+          {location ? `${location.latitude.toFixed(3)}, ${location.longitude.toFixed(3)}` : 'sem local'}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Chuva (mm)</label>
+          <input
+            value={settings.rainMm}
+            onChange={(e) => setSettings((p: any) => ({ ...p, rainMm: e.target.value }))}
+            inputMode="numeric"
+            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Calor (C)</label>
+          <input
+            value={settings.heatC}
+            onChange={(e) => setSettings((p: any) => ({ ...p, heatC: e.target.value }))}
+            inputMode="numeric"
+            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Frio (C)</label>
+          <input
+            value={settings.coldC}
+            onChange={(e) => setSettings((p: any) => ({ ...p, coldC: e.target.value }))}
+            inputMode="numeric"
+            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+          />
+        </div>
+        <div className="bg-zinc-950/40 border border-white/10 rounded-2xl p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Status</p>
+          <p className="text-zinc-300 text-sm leading-relaxed">
+            Configure limites. Integracao com previsao/alertas pode ser ligada depois.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Notas</label>
+        <textarea
+          value={settings.notes}
+          onChange={(e) => setSettings((p: any) => ({ ...p, notes: e.target.value }))}
+          rows={6}
+          placeholder="Ex: risco de geada, janela de pulverizacao..."
+          className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+        />
+      </div>
+    </div>
+  );
+}
+
+function DrPastoView({ user }: { user: User }) {
+  const storageKey = `${user.username}_dr_pasto_notes_v1`;
+  const [notes, setNotes] = useState(() => {
+    try {
+      return String(localStorage.getItem(storageKey) || '');
+    } catch {
+      return '';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, notes);
+    } catch {
+      // Best effort only.
+    }
+  }, [notes, storageKey]);
+
+  return (
+    <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center gap-2 mb-4">
+        <Brain className="w-4 h-4 text-[#d2b48c]" />
+        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-[#d2b48c]">Dr.Pasto</h2>
+      </div>
+      <p className="text-zinc-300 text-sm leading-relaxed mb-4">
+        Anotacoes rapidas e observacoes do pasto (salva no dispositivo).
+      </p>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Escreva aqui..."
+        rows={10}
+        className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+      />
     </div>
   );
 }
