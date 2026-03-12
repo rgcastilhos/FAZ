@@ -444,20 +444,22 @@ async function startServer() {
       }
 
       const prompt = String(req.body?.prompt || "").trim();
-      const inlineData = req.body?.inlineData as { mimeType?: string; data?: string } | undefined;
+      const inlineDataList = Array.isArray(req.body?.inlineDataList) ? req.body.inlineDataList : (req.body?.inlineData ? [req.body.inlineData] : []);
       if (!prompt) {
         res.status(400).json({ error: "Prompt inválido." });
         return;
       }
 
       const parts: any[] = [];
-      if (inlineData?.mimeType && inlineData?.data) {
-        parts.push({
-          inlineData: {
-            mimeType: inlineData.mimeType,
-            data: inlineData.data,
-          },
-        });
+      for (const img of inlineDataList) {
+        if (img?.mimeType && img?.data) {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType,
+              data: img.data,
+            },
+          });
+        }
       }
       parts.push({ text: prompt });
 
@@ -650,6 +652,69 @@ Retorne no schema solicitado.
       res.json({ text: response.text || "Nenhum resultado encontrado.", links });
     } catch (error: any) {
       sendAiError(res, error, "Falha ao consultar mapas.");
+    }
+  });
+
+  app.get("/api/ai/market-quotes", async (req, res) => {
+    try {
+      const ai = getAiClient();
+      if (!ai) {
+        res.status(500).json({ error: "GEMINI_API_KEY não configurada no servidor." });
+        return;
+      }
+
+      const prompt = `Busque na internet as cotações atuais (de hoje ou desta semana) do mercado agropecuário. 
+Preciso dos valores em Reais (R$) para o Rio Grande do Sul (NESUI/UFRGS) e média CEPEA.
+Se o preço for por Kg, coloque; se for por Arroba, coloque. Se não achar, coloque 'N/D'.
+
+Formato JSON obrigatório:
+{
+  "ufrgs": { "boi": "", "vaca": "", "novilho": "", "terneiro": "", "terneira": "" },
+  "cepea": { "boi": "", "vaca": "", "novilho": "", "terneiro": "", "terneira": "" }
+}`;
+
+      const response = await generateContentWithRetry(
+        ai,
+        {
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            tools: [{ googleSearch: {} }],
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                ufrgs: {
+                  type: Type.OBJECT,
+                  properties: {
+                    boi: { type: Type.STRING },
+                    vaca: { type: Type.STRING },
+                    novilho: { type: Type.STRING },
+                    terneiro: { type: Type.STRING },
+                    terneira: { type: Type.STRING },
+                  }
+                },
+                cepea: {
+                  type: Type.OBJECT,
+                  properties: {
+                    boi: { type: Type.STRING },
+                    vaca: { type: Type.STRING },
+                    novilho: { type: Type.STRING },
+                    terneiro: { type: Type.STRING },
+                    terneira: { type: Type.STRING },
+                  }
+                }
+              }
+            }
+          }
+        },
+        ["gemini-2.5-flash"]
+      );
+
+      const text = response.text || "{}";
+      const data = JSON.parse(text);
+      res.json({ data, fetchedAt: Date.now() });
+    } catch (error: any) {
+      sendAiError(res, error, "Falha ao buscar cotações do mercado.");
     }
   });
 

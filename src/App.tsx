@@ -641,7 +641,7 @@ function CameraView({ user }: { user: User | null }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -713,7 +713,8 @@ function CameraView({ user }: { user: User | null }) {
   }, []);
 
   useEffect(() => {
-    if (capturedImage) {
+    if (capturedImages.length > 0) {
+      const latestImage = capturedImages[capturedImages.length - 1];
       const img = new Image();
       img.onload = () => {
         const w = img.naturalWidth;
@@ -721,7 +722,7 @@ function CameraView({ user }: { user: User | null }) {
         const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
         const divisor = gcd(w, h);
         const ratio = `${w / divisor}:${h / divisor}`;
-        const sizeKb = (capturedImage.length * 0.75 / 1024).toFixed(1);
+        const sizeKb = (latestImage.length * 0.75 / 1024).toFixed(1);
         
         setImageStats({
           res: `${w} x ${h} px`,
@@ -729,13 +730,13 @@ function CameraView({ user }: { user: User | null }) {
           size: `${sizeKb} KB`
         });
       };
-      img.src = capturedImage;
+      img.src = latestImage;
       setWeightAnalysis(null);
     } else {
       setImageStats(null);
       setWeightAnalysis(null);
     }
-  }, [capturedImage]);
+  }, [capturedImages]);
 
   const startCamera = async () => {
     if (Capacitor.isNativePlatform()) {
@@ -850,7 +851,7 @@ function CameraView({ user }: { user: User | null }) {
         
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-        setCapturedImage(imageDataUrl);
+        setCapturedImages(prev => [...prev, imageDataUrl]);
         
         try {
           await addImageToDB(imageDataUrl, user?.username);
@@ -860,35 +861,40 @@ function CameraView({ user }: { user: User | null }) {
           setError("Erro ao salvar imagem no banco de dados.");
         }
         
-        stopCamera();
+        // Mantém a câmera ativa para tirar mais fotos se quiser
       }
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const result = reader.result as string;
-        setCapturedImage(result);
-        
-        try {
-          await addImageToDB(result, user?.username);
-          await loadGallery();
-        } catch (e) {
-          console.error("Failed to save to DB", e);
-          setError("Erro ao salvar imagem no banco de dados.");
-        }
-        
-        stopCamera();
-      };
-      reader.readAsDataURL(file);
+  const handleFilesUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const result = reader.result as string;
+          setCapturedImages(prev => [...prev, result]);
+          
+          try {
+            await addImageToDB(result, user?.username);
+            await loadGallery();
+          } catch (e) {
+            console.error("Failed to save to DB", e);
+            // setError("Erro ao salvar imagem no banco de dados.");
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      stopCamera();
     }
   };
 
+  const removeCapturedImage = (index: number) => {
+    setCapturedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
   const resetImage = () => {
-    setCapturedImage(null);
+    setCapturedImages([]);
     startCamera();
   };
 
@@ -903,12 +909,12 @@ function CameraView({ user }: { user: User | null }) {
   };
 
   const selectFromGallery = (img: string) => {
-    setCapturedImage(img);
+    setCapturedImages(prev => [...prev, img]);
     stopCamera();
   };
 
   const estimateWeight = async () => {
-    if (estimationMode === 'camera' && !capturedImage) return;
+    if (estimationMode === 'camera' && capturedImages.length === 0) return;
     if (estimationMode === 'manual' && (!manualData.heartGirth || !manualData.bodyLength)) {
       setError("Por favor, preencha o perímetro torácico e o comprimento corporal.");
       return;
@@ -930,14 +936,16 @@ function CameraView({ user }: { user: User | null }) {
       }
 
       let prompt = "";
-      let inlineData: { mimeType: string; data: string } | undefined = undefined;
+      let inlineDataList: { mimeType: string; data: string }[] = [];
 
       if (estimationMode === 'camera') {
-        const [mimeTypePrefix, base64Data] = capturedImage!.split(';base64,');
-        const mimeType = mimeTypePrefix.replace('data:', '');
-        inlineData = { mimeType, data: base64Data };
+        for (const img of capturedImages) {
+          const [mimeTypePrefix, base64Data] = img.split(';base64,');
+          const mimeType = mimeTypePrefix.replace('data:', '');
+          inlineDataList.push({ mimeType, data: base64Data });
+        }
         
-        prompt = `Atue como um sistema avançado de Visão Computacional e Zootecnia de Precisão. Analise esta imagem para estimar o peso do animal de produção (bovino, suíno, ovino, etc.).
+        prompt = `Atue como um sistema avançado de Visão Computacional e Zootecnia de Precisão. Analise as imagens para estimar o peso do animal de produção (bovino, suíno, ovino, etc.).
         
         Siga este protocolo técnico:
         1. Identifique a espécie, raça e sexo do animal.
@@ -945,7 +953,7 @@ function CameraView({ user }: { user: User | null }) {
         3. Estime o peso vivo mais provável em quilogramas (kg).
         ${trainingContext}
         
-        Se não houver um animal de produção claramente visível na imagem, retorne peso_estimado_kg como 0.`;
+        Se não houver um animal de produção claramente visível nas imagens, retorne peso_estimado_kg como 0.`;
       } else {
         prompt = `Atue como um especialista em Zootecnia de Precisão. Estime o peso de um animal de produção com base nas seguintes medidas biométricas:
         
@@ -964,7 +972,7 @@ function CameraView({ user }: { user: User | null }) {
       const response = await apiFetch('/api/ai/estimate-weight', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, inlineData }),
+        body: JSON.stringify({ prompt, inlineDataList }),
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
@@ -1009,7 +1017,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
           breed: data.raca || manualData.breed || 'N/A',
           weight: pesoFinal,
           resultText: formattedResult,
-          imageData: estimationMode === 'camera' ? capturedImage! : undefined
+          imageData: estimationMode === 'camera' && capturedImages.length > 0 ? capturedImages[0] : undefined
         }, user?.username);
         loadHistory();
 
@@ -1090,21 +1098,24 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
               <input 
                 type="file" 
                 accept="image/*" 
+                multiple
                 className="hidden" 
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                      setCapturedImage(reader.result as string);
-                      setError(null);
-                    };
-                    reader.readAsDataURL(file);
+                  const files = e.target.files;
+                  if (files && files.length > 0) {
+                    Array.from(files).forEach(file => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setCapturedImages(prev => [...prev, reader.result as string]);
+                        setError(null);
+                      };
+                      reader.readAsDataURL(file);
+                    });
                   }
                 }}
               />
             </label>
-            {capturedImage && (
+            {capturedImages.length > 0 && (
               <button 
                 onClick={() => {
                   setError(null);
@@ -1112,7 +1123,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
                 }}
                 className="px-5 py-2.5 bg-zinc-800 text-zinc-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-zinc-700 transition-all active:scale-95"
               >
-                Tirar Outra Foto
+                Limpar Fotos
               </button>
             )}
           </div>
@@ -1135,13 +1146,29 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
 
       <div className="relative aspect-[3/4] bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800 ring-1 ring-white/5 group">
         {estimationMode === 'camera' ? (
-          capturedImage ? (
+          capturedImages.length > 0 ? (
             <>
               <img 
-                src={capturedImage} 
+                src={capturedImages[capturedImages.length - 1]} 
                 alt="Captured" 
                 className="w-full h-full object-cover" 
               />
+              
+              {capturedImages.length > 1 && (
+                <div className="absolute top-4 left-4 right-4 flex gap-2 overflow-x-auto pb-2 z-10 scrollbar-hide">
+                  {capturedImages.map((img, idx) => (
+                    <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border-2 border-white/20 flex-shrink-0 shadow-lg">
+                      <img src={img} alt="Thumb" className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => removeCapturedImage(idx)}
+                        className="absolute top-0.5 right-0.5 p-1 bg-black/60 rounded-md text-white hover:bg-red-500 transition-all"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               
               {/* AI Analysis Overlay */}
               {weightAnalysis && (
@@ -1297,7 +1324,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
         )}
 
         {/* Image Stats Overlay (Only if not analyzing) */}
-        {capturedImage && imageStats && !weightAnalysis && (
+        {capturedImages.length > 0 && imageStats && !weightAnalysis && (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1410,8 +1437,9 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
             <input 
               type="file" 
               accept="image/*" 
+              multiple
               className="hidden" 
-              onChange={handleFileUpload}
+              onChange={handleFilesUpload}
             />
             <ImageIcon className="w-6 h-6 text-zinc-400 group-hover:text-zinc-200" />
           </label>
@@ -1419,7 +1447,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
 
         {/* Center Action: Capture, Reset, or Analyze */}
         <div className="flex justify-center">
-          {capturedImage ? (
+          {capturedImages.length > 0 ? (
             <div className="flex gap-4">
               <button 
                 onClick={resetImage}
@@ -1459,9 +1487,9 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
 
         {/* Right Action: Download */}
         <div className="flex justify-center">
-          {capturedImage ? (
+          {capturedImages.length > 0 ? (
             <a 
-              href={capturedImage} 
+              href={capturedImages[capturedImages.length - 1]} 
               download={`animal-${Date.now()}.png`}
               className="p-4 rounded-full bg-zinc-900 hover:bg-zinc-800 transition-colors border border-zinc-800 group"
             >
@@ -3175,7 +3203,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
               : 'text-zinc-500 hover:text-zinc-300'
           }`}
         >
-          <DollarSign className="w-3.5 h-3.5" /> Mercado
+          <DollarSign className="w-3.5 h-3.5" /> Mercado RS
         </button>
         <button
           onClick={() => setActiveTab('weather_alerts')}
@@ -3214,23 +3242,29 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
 }
 
 function CattleQuotesView({ user }: { user: User }) {
-  const storageKey = `${user.username}_mercado_v1`;
+  const storageKey = `${user.username}_mercado_rs_v2`;
   const [payload, setPayload] = useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (!raw) return { 
-        ufrgs: '', 
-        cepeaBoi: '', 
-        vacaGorda: '', 
-        novilho: '',
-        terneira: '',
-        terneiro: '' 
+      if (!raw) return {
+        ufrgs: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
+        cepea: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
+        lastUpdated: '',
+        lastFetchedMs: 0
       };
       return JSON.parse(raw);
     } catch {
-      return { ufrgs: '', cepeaBoi: '', vacaGorda: '', novilho: '', terneira: '', terneiro: '' };
+      return {
+        ufrgs: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
+        cepea: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
+        lastUpdated: '',
+        lastFetchedMs: 0
+      };
     }
   });
+
+  const [isFetching, setIsFetching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -3240,100 +3274,110 @@ function CattleQuotesView({ user }: { user: User }) {
     }
   }, [payload, storageKey]);
 
+  const handleFetchMarket = async () => {
+    setIsFetching(true);
+    setError(null);
+    try {
+      const response = await apiFetch('/api/ai/market-quotes');
+      const data = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        throw new Error(data?.error || "Falha ao atualizar cotações");
+      }
+      
+      if (data?.data) {
+        setPayload({
+          ufrgs: data.data.ufrgs || { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' },
+          cepea: data.data.cepea || { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' },
+          lastUpdated: new Date().toLocaleDateString(),
+          lastFetchedMs: Date.now()
+        });
+      }
+    } catch (e: any) {
+      setError(e.message || "Erro de conexão com o Mercado.");
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  // Auto-fetch uma vez por dia
+  useEffect(() => {
+    const today = new Date().toLocaleDateString();
+    if (payload.lastUpdated !== today && !isFetching) {
+      handleFetchMarket();
+    }
+  }, [payload.lastUpdated]);
+
+  const InputRow = ({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) => (
+    <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">{label}</span>
+      <div className="relative w-32">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold text-[10px]">R$</span>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode="decimal"
+          placeholder="0,00"
+          className="w-full bg-zinc-950/60 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs font-bold text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-[#5a5a40]/40 transition-all text-right"       
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
-      <div className="flex items-center gap-2 mb-6">
-        <DollarSign className="w-5 h-5 text-[#d2b48c]" />
-        <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Mercado</h2>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <DollarSign className="w-5 h-5 text-[#d2b48c]" />
+          <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Mercado RS</h2>
+        </div>
+        <button 
+          onClick={handleFetchMarket}
+          disabled={isFetching}
+          className="bg-[#5a5a40]/20 hover:bg-[#5a5a40]/40 text-[#d2b48c] p-2.5 rounded-xl transition-all disabled:opacity-50"
+          title="Buscar Cotações Atualizadas"
+        >
+          {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+        </button>
       </div>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Preço UFRGS/NESUI (Média Estadual)</label>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
-            <input
-              value={payload.ufrgs}
-              onChange={(e) => setPayload((p: any) => ({ ...p, ufrgs: e.target.value }))}
-              inputMode="decimal"
-              placeholder="0,00"
-              className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
-            />
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs">
+          {error}
+        </div>
+      )}
+
+      {payload.lastUpdated && (
+        <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black mb-4">
+          Atualizado em: {new Date(payload.lastFetchedMs || Date.now()).toLocaleString()}
+        </p>
+      )}
+
+      <div className="space-y-6">
+        <div className="bg-zinc-900/40 p-4 rounded-[1.5rem] border border-white/5">
+          <h3 className="text-xs font-bold text-zinc-200 mb-3 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#d2b48c]"></span>    
+            Preço UFRGS/NESUI (Média Estadual)
+          </h3>
+          <div className="flex flex-col">
+            <InputRow label="Boi Gordo (R$/Kg)" value={payload.ufrgs?.boi || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, boi: v } }))} />
+            <InputRow label="Vaca Gorda (R$/Kg)" value={payload.ufrgs?.vaca || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, vaca: v } }))} />
+            <InputRow label="Novilho/Novilha (R$/Kg)" value={payload.ufrgs?.novilho || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, novilho: v } }))} />
+            <InputRow label="Terneira (R$/Kg)" value={payload.ufrgs?.terneira || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, terneira: v } }))} />
+            <InputRow label="Terneiro (R$/Kg)" value={payload.ufrgs?.terneiro || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, terneiro: v } }))} />
           </div>
         </div>
 
-        <div className="h-px bg-white/10 w-full my-4" />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Variação CEPEA: Boi Gordo (R$/Kg)</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
-              <input
-                value={payload.cepeaBoi}
-                onChange={(e) => setPayload((p: any) => ({ ...p, cepeaBoi: e.target.value }))}
-                inputMode="decimal"
-                placeholder="0,00"
-                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Vaca Gorda (R$/Kg)</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
-              <input
-                value={payload.vacaGorda}
-                onChange={(e) => setPayload((p: any) => ({ ...p, vacaGorda: e.target.value }))}
-                inputMode="decimal"
-                placeholder="0,00"
-                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 mt-2">
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Novilho/Novilha (R$/Kg)</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
-              <input
-                value={payload.novilho}
-                onChange={(e) => setPayload((p: any) => ({ ...p, novilho: e.target.value }))}
-                inputMode="decimal"
-                placeholder="0,00"
-                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Terneira (R$/Kg)</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
-              <input
-                value={payload.terneira}
-                onChange={(e) => setPayload((p: any) => ({ ...p, terneira: e.target.value }))}
-                inputMode="decimal"
-                placeholder="0,00"
-                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Terneiro (R$/Kg)</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
-              <input
-                value={payload.terneiro}
-                onChange={(e) => setPayload((p: any) => ({ ...p, terneiro: e.target.value }))}
-                inputMode="decimal"
-                placeholder="0,00"
-                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
-              />
-            </div>
+        <div className="bg-zinc-900/40 p-4 rounded-[1.5rem] border border-white/5">
+          <h3 className="text-xs font-bold text-zinc-200 mb-3 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>  
+            Variação CEPEA
+          </h3>
+          <div className="flex flex-col">
+            <InputRow label="Boi Gordo (R$/Kg)" value={payload.cepea?.boi || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, boi: v } }))} />
+            <InputRow label="Vaca Gorda (R$/Kg)" value={payload.cepea?.vaca || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, vaca: v } }))} />
+            <InputRow label="Novilho/Novilha (R$/Kg)" value={payload.cepea?.novilho || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, novilho: v } }))} />
+            <InputRow label="Terneira (R$/Kg)" value={payload.cepea?.terneira || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, terneira: v } }))} />
+            <InputRow label="Terneiro (R$/Kg)" value={payload.cepea?.terneiro || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, terneiro: v } }))} />
           </div>
         </div>
       </div>
