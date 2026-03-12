@@ -3630,6 +3630,14 @@ function DrPastoView({ user }: { user: User }) {
     }
   });
 
+  const toPercent = (value: unknown): number => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    // Accept either 0..1 or 0..100 coming from the model.
+    const pct = n <= 1.01 ? n * 100 : n;
+    return Math.max(0, Math.min(100, pct));
+  };
+
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -3881,9 +3889,13 @@ function DrPastoView({ user }: { user: User }) {
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-bold text-zinc-100">{item.doenca}</p>
                       <p className="text-[10px] font-black uppercase tracking-widest text-[#d2b48c]">
-                        {Math.round((Number(item.probabilidade) || 0) * 100)}%
+                        {Math.round(toPercent(item.probabilidade))}%
                       </p>
                     </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Tenho <span className="font-bold text-zinc-200">{Math.round(toPercent(item.probabilidade))}%</span> de certeza que seja{' '}
+                      <span className="font-bold text-zinc-200">{item.doenca}</span> (estimativa da IA).
+                    </p>
                     <p className="text-xs text-zinc-400 mt-1">Urgencia: {item.nivel_urgencia}</p>
                     <p className="text-sm text-zinc-200 mt-3 leading-relaxed">{item.justificativa_visual}</p>
                     {Array.isArray(item.acoes_imediatas) && item.acoes_imediatas.length > 0 && (
