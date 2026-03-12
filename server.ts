@@ -500,18 +500,19 @@ async function startServer() {
       }
 
       const notes = String(req.body?.notes || "").trim();
-      const inlineData = req.body?.inlineData as { mimeType?: string; data?: string } | undefined;
-      if (!inlineData?.mimeType || !inlineData?.data) {
-        res.status(400).json({ error: "Imagem inválida." });
+      const inlineDataList = Array.isArray(req.body?.inlineDataList) ? req.body.inlineDataList : (req.body?.inlineData ? [req.body.inlineData] : []);
+      
+      if (inlineDataList.length === 0) {
+        res.status(400).json({ error: "Imagem inválida ou ausente." });
         return;
       }
 
       const prompt = `
-Você é o Dr.Pasto, um "veterinário de bolso" para pecuaristas. Analise a FOTO do animal e aponte hipóteses (suspeitas) de doenças/condições com base apenas em sinais visuais.
+Você é o Dr.Pasto, um "veterinário de bolso" para pecuaristas. Analise a FOTO (ou FOTOS) do animal e aponte hipóteses (suspeitas) de doenças/condições com base apenas em sinais visuais.
 
 Regras:
 - Não dê diagnóstico definitivo. Use "suspeita" e "diferenciais".
-- Se a imagem não permitir, diga que não é possível concluir e peça mais informações.
+- Se as imagens não permitirem, diga que não é possível concluir e peça mais informações.
 - Sempre inclua orientações de segurança e quando chamar um veterinário.
 - Assuma bovinos por padrão, mas se não for bovino, mencione a espécie provável.
 - Responda em português do Brasil.
@@ -521,15 +522,13 @@ Contexto adicional do pecuarista (pode estar vazio): ${notes || "(nenhum)"}
 Retorne no schema solicitado.
       `.trim();
 
-      const parts: any[] = [
-        {
-          inlineData: {
-            mimeType: inlineData.mimeType,
-            data: inlineData.data,
-          },
+      const parts: any[] = inlineDataList.map((img: any) => ({
+        inlineData: {
+          mimeType: img.mimeType,
+          data: img.data,
         },
-        { text: prompt },
-      ];
+      }));
+      parts.push({ text: prompt });
 
       const response = await generateContentWithRetry(
         ai,

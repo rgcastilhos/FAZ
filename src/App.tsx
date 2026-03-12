@@ -3615,8 +3615,8 @@ function DrPastoView({ user }: { user: User }) {
       return '';
     }
   });
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [inlineData, setInlineData] = useState<DrPastoInlineData | null>(null);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [inlineDataList, setInlineDataList] = useState<DrPastoInlineData[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<DrPastoAnalysis | null>(() => {
@@ -3658,41 +3658,48 @@ function DrPastoView({ user }: { user: User }) {
     }
   }, [analysis, analysisKey]);
 
-  const setImageFromDataUrl = (dataUrl: string) => {
+  const addImageFromDataUrl = (dataUrl: string) => {
     const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
     if (!match) throw new Error('Imagem inválida (data URL).');
     const mimeType = match[1];
     const base64 = match[2];
-    setImagePreview(dataUrl);
-    setInlineData({ mimeType, data: base64 });
+    setImagePreviews(prev => [...prev, dataUrl]);
+    setInlineDataList(prev => [...prev, { mimeType, data: base64 }]);
   };
 
-  const handleFile = async (file: File | null | undefined) => {
-    if (!file) return;
+  const removeImage = (index: number) => {
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+    setInlineDataList(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFiles = async (files: FileList | null | undefined) => {
+    if (!files || files.length === 0) return;
     setError(null);
     setAnalysis(null);
-    if (!file.type || !file.type.startsWith('image/')) {
-      setError('Arquivo inválido. Selecione uma imagem.');
-      return;
-    }
-    // Keep this conservative; large photos can make requests fail on slow networks.
     const maxBytes = 8 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      setError('Imagem muito grande. Escolha uma foto menor (até 8MB).');
-      return;
-    }
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type || !file.type.startsWith('image/')) {
+        setError('Um ou mais arquivos inválidos. Selecione apenas imagens.');
+        return;
+      }
+      if (file.size > maxBytes) {
+        setError(`A imagem ${file.name} é muito grande. Escolha fotos menores (até 8MB).`);
+        return;
+      }
 
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('Falha ao ler a imagem.'));
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.readAsDataURL(file);
-    });
-
-    try {
-      setImageFromDataUrl(dataUrl);
-    } catch (e: any) {
-      setError(e?.message || 'Falha ao processar a imagem.');
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('Falha ao ler a imagem.'));
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(file);
+        });
+        addImageFromDataUrl(dataUrl);
+      } catch (e: any) {
+        setError(e?.message || 'Falha ao processar uma imagem.');
+      }
     }
   };
 
@@ -3700,20 +3707,40 @@ function DrPastoView({ user }: { user: User }) {
     setError(null);
     setAnalysis(null);
     try {
-      const photo = await CapacitorCamera.getPhoto({
-        quality: 85,
-        allowEditing: false,
-        resultType: CameraResultType.Base64,
-        source,
-      });
-      const format = String((photo as any)?.format || 'jpeg').toLowerCase();
-      const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-      const base64 = String((photo as any)?.base64String || '').trim();
-      if (!base64) throw new Error('A câmera não retornou a imagem.');
-      setInlineData({ mimeType, data: base64 });
-      setImagePreview(`data:${mimeType};base64,${base64}`);
+      if (source === CameraSource.Photos) {
+        const photos = await CapacitorCamera.pickImages({
+           quality: 85,
+           limit: 5
+        });
+        for (const p of photos.photos) {
+          const format = String(p.format || 'jpeg').toLowerCase();
+          const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+          if (p.webPath) {
+              const response = await fetch(p.webPath);
+              const blob = await response.blob();
+              const base64 = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result as string);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+              });
+              addImageFromDataUrl(base64);
+          }
+        }
+      } else {
+        const photo = await CapacitorCamera.getPhoto({
+          quality: 85,
+          allowEditing: false,
+          resultType: CameraResultType.Base64,
+          source,
+        });
+        const format = String((photo as any)?.format || 'jpeg').toLowerCase();
+        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+        const base64 = String((photo as any)?.base64String || '').trim();
+        if (!base64) throw new Error('A câmera não retornou a imagem.');
+        addImageFromDataUrl(`data:${mimeType};base64,${base64}`);
+      }
     } catch (e: any) {
-      // Capacitor throws on user-cancel too; keep message short.
       const message = String(e?.message || '').trim();
       if (message) setError(message);
     }
@@ -3735,9 +3762,9 @@ function DrPastoView({ user }: { user: User }) {
     galleryInputRef.current?.click();
   };
 
-  const clearImage = () => {
-    setImagePreview(null);
-    setInlineData(null);
+  const clearImages = () => {
+    setImagePreviews([]);
+    setInlineDataList([]);
     setAnalysis(null);
     setError(null);
     if (galleryInputRef.current) galleryInputRef.current.value = '';
@@ -3745,8 +3772,8 @@ function DrPastoView({ user }: { user: User }) {
   };
 
   const runAnalysis = async () => {
-    if (!inlineData) {
-      setError('Selecione uma foto do animal (câmera ou galeria).');
+    if (inlineDataList.length === 0) {
+      setError('Selecione pelo menos uma foto do animal (câmera ou galeria).');
       return;
     }
     setIsAnalyzing(true);
@@ -3756,7 +3783,7 @@ function DrPastoView({ user }: { user: User }) {
       const response = await apiFetch('/api/ai/dr-pasto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: notes || '', inlineData }),
+        body: JSON.stringify({ notes: notes || '', inlineDataList }),
       });
       const payload = await response.json().catch(() => ({} as any));
       if (!response.ok) {
@@ -3779,7 +3806,7 @@ function DrPastoView({ user }: { user: User }) {
         <h2 className="text-xs font-black uppercase tracking-[0.2em] text-[#d2b48c]">Dr.Pasto</h2>
       </div>
       <p className="text-zinc-300 text-sm leading-relaxed mb-4">
-        Tire uma foto do animal ou importe da galeria para a IA sugerir suspeitas de doencas (nao e diagnostico definitivo).
+        Tire uma ou mais fotos do animal ou importe da galeria para a IA sugerir suspeitas de doencas (nao e diagnostico definitivo).
       </p>
 
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -3801,36 +3828,48 @@ function DrPastoView({ user }: { user: User }) {
           type="file"
           accept="image/*"
           capture="environment"
-          onChange={(e) => void handleFile(e.target.files?.[0])}
+          multiple
+          onChange={(e) => void handleFiles(e.target.files)}
           className="hidden"
         />
         <input
           ref={galleryInputRef}
           type="file"
           accept="image/*"
-          onChange={(e) => void handleFile(e.target.files?.[0])}
+          multiple
+          onChange={(e) => void handleFiles(e.target.files)}
           className="hidden"
         />
       </div>
 
-      <div className="relative aspect-video bg-zinc-950/40 border border-white/10 rounded-[2rem] overflow-hidden mb-4">
-        {imagePreview ? (
-          <>
-            <img src={imagePreview} alt="Animal" className="w-full h-full object-cover" />
-            <button
-              onClick={clearImage}
-              className="absolute top-3 right-3 p-2 bg-black/60 rounded-2xl text-white hover:bg-red-500 transition-all shadow-xl backdrop-blur-md"
-              title="Remover foto"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </>
+      <div className="relative bg-zinc-950/40 border border-white/10 rounded-[2rem] p-4 mb-4">
+        {imagePreviews.length > 0 ? (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-black">{imagePreviews.length} foto(s)</span>
+              <button onClick={clearImages} className="text-[10px] text-red-400 uppercase tracking-widest font-black hover:text-red-300">Limpar Todas</button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {imagePreviews.map((preview, index) => (
+                <div key={index} className="relative flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-white/10">
+                  <img src={preview} alt={`Preview ${index}`} className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => removeImage(index)}
+                    className="absolute top-1 right-1 p-1 bg-black/60 rounded-lg text-white hover:bg-red-500 transition-all shadow-xl backdrop-blur-md"
+                    title="Remover foto"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-center p-6">
+          <div className="w-full py-6 flex flex-col items-center justify-center text-center">
             <div className="h-14 w-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 mb-3">
               <ImageIcon className="w-7 h-7 text-[#d2b48c] opacity-70" />
             </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-300">Sem foto selecionada</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-300">Sem fotos selecionadas</p>
             <p className="text-xs text-zinc-500 mt-2">Use "Tirar foto" ou "Galeria".</p>
           </div>
         )}
@@ -3849,7 +3888,7 @@ function DrPastoView({ user }: { user: User }) {
 
       <button
         onClick={() => void runAnalysis()}
-        disabled={isAnalyzing}
+        disabled={isAnalyzing || imagePreviews.length === 0}
         className="w-full bg-[#5a5a40] hover:bg-[#4a4a35] disabled:opacity-60 disabled:cursor-not-allowed text-[#f5f2ed] py-4 rounded-[2rem] font-black uppercase text-xs tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-2xl shadow-[#5a5a40]/30 active:scale-95"
       >
         {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Brain className="w-5 h-5" />}
