@@ -589,7 +589,7 @@ function UserManagementView() {
           </div>
         ) : (
           <div className="space-y-3">
-            <AnimatePresence mode='popLayout'>
+            <AnimatePresence>
               {users.map((user, index) => (
                   <motion.div
                     key={user.username || `user-${index}`}
@@ -675,7 +675,7 @@ function CameraView({ user }: { user: User | null }) {
   const loadHistory = async () => {
     try {
       const data = await getHistory(user?.username);
-      setHistory(data.sort((a, b) => b.createdAt - a.createdAt));
+      setHistory(data.sort((a, b) => b.createdAt - a.createdAt).slice(0, 5));
     } catch (e) {
       console.error("Failed to load history", e);
     }
@@ -684,8 +684,8 @@ function CameraView({ user }: { user: User | null }) {
   const loadGallery = async () => {
     try {
       const images = await getImagesFromDB(user?.username);
-      // Sort by newest first
-      setGallery(images.sort((a, b) => b.createdAt - a.createdAt));
+      // Sort by newest first and limit to 10 to save RAM
+      setGallery(images.sort((a, b) => b.createdAt - a.createdAt).slice(0, 10));
     } catch (e) {
       console.error("Failed to load gallery from DB", e);
       setError("Erro ao carregar galeria.");
@@ -849,7 +849,7 @@ function CameraView({ user }: { user: User | null }) {
         }
         
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageDataUrl = canvas.toDataURL('image/png');
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
         setCapturedImage(imageDataUrl);
         
         try {
@@ -1036,7 +1036,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
             <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{gallery.length} salvas</span>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide snap-x">
-            <AnimatePresence mode='popLayout'>
+            <AnimatePresence>
               {gallery.map((item) => (
                 <motion.div 
                   key={item.id}
@@ -1354,7 +1354,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
             </button>
           </div>
           <div className="space-y-3">
-            <AnimatePresence mode='popLayout'>
+            <AnimatePresence>
               {history.slice(0, 5).map((item, index) => (
                 <motion.div 
                   key={item.id || `history-${index}`}
@@ -1494,7 +1494,7 @@ function TrainingView({ user }: { user: User | null }) {
     try {
       const history = await getTrainingData(user?.username);
       const safeHistory = Array.isArray(history) ? history : [];
-      setTrainingHistory(safeHistory.sort((a, b) => (Number(b?.createdAt) || 0) - (Number(a?.createdAt) || 0)));
+      setTrainingHistory(safeHistory.sort((a, b) => (Number(b?.createdAt) || 0) - (Number(a?.createdAt) || 0)).slice(0, 10));
     } catch (err: any) {
       console.error('loadHistory error:', err);
       setTrainingHistory([]);
@@ -1727,7 +1727,7 @@ function TrainingView({ user }: { user: User | null }) {
         <div className="space-y-4">
           <h3 className="text-[10px] font-black text-[#d2b48c] uppercase tracking-[0.2em] ml-4">Exemplos de Calibração</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <AnimatePresence mode='popLayout'>
+            <AnimatePresence>
               {trainingHistory.map((item) => (
                 <motion.div 
                   key={item.id}
