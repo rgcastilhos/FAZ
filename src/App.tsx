@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import { Camera as CapacitorCamera } from '@capacitor/camera';
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
 
 // Default admin code to access user management
@@ -3590,6 +3590,24 @@ function WeatherAlertsView({ user }: { user: User }) {
 
 function DrPastoView({ user }: { user: User }) {
   const storageKey = `${user.username}_dr_pasto_notes_v1`;
+  const analysisKey = `${user.username}_dr_pasto_analysis_v1`;
+
+  type DrPastoInlineData = { mimeType: string; data: string };
+  type DrPastoAnalysis = {
+    especie_provavel: string;
+    sinais_visuais: string[];
+    suspeitas: Array<{
+      doenca: string;
+      probabilidade: number;
+      justificativa_visual: string;
+      nivel_urgencia: string;
+      acoes_imediatas: string[];
+    }>;
+    perguntas_para_confirmar: string[];
+    quando_chamar_veterinario: string;
+    aviso: string;
+  };
+
   const [notes, setNotes] = useState(() => {
     try {
       return String(localStorage.getItem(storageKey) || '');
@@ -3597,6 +3615,23 @@ function DrPastoView({ user }: { user: User }) {
       return '';
     }
   });
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [inlineData, setInlineData] = useState<DrPastoInlineData | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<DrPastoAnalysis | null>(() => {
+    try {
+      const raw = localStorage.getItem(analysisKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? (parsed as DrPastoAnalysis) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try {
@@ -3606,6 +3641,129 @@ function DrPastoView({ user }: { user: User }) {
     }
   }, [notes, storageKey]);
 
+  useEffect(() => {
+    try {
+      if (analysis) localStorage.setItem(analysisKey, JSON.stringify(analysis));
+      else localStorage.removeItem(analysisKey);
+    } catch {
+      // Best effort only.
+    }
+  }, [analysis, analysisKey]);
+
+  const setImageFromDataUrl = (dataUrl: string) => {
+    const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+    if (!match) throw new Error('Imagem inválida (data URL).');
+    const mimeType = match[1];
+    const base64 = match[2];
+    setImagePreview(dataUrl);
+    setInlineData({ mimeType, data: base64 });
+  };
+
+  const handleFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    setError(null);
+    setAnalysis(null);
+    if (!file.type || !file.type.startsWith('image/')) {
+      setError('Arquivo inválido. Selecione uma imagem.');
+      return;
+    }
+    // Keep this conservative; large photos can make requests fail on slow networks.
+    const maxBytes = 8 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setError('Imagem muito grande. Escolha uma foto menor (até 8MB).');
+      return;
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Falha ao ler a imagem.'));
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.readAsDataURL(file);
+    });
+
+    try {
+      setImageFromDataUrl(dataUrl);
+    } catch (e: any) {
+      setError(e?.message || 'Falha ao processar a imagem.');
+    }
+  };
+
+  const captureOrPickNative = async (source: CameraSource) => {
+    setError(null);
+    setAnalysis(null);
+    try {
+      const photo = await CapacitorCamera.getPhoto({
+        quality: 85,
+        allowEditing: false,
+        resultType: CameraResultType.Base64,
+        source,
+      });
+      const format = String((photo as any)?.format || 'jpeg').toLowerCase();
+      const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+      const base64 = String((photo as any)?.base64String || '').trim();
+      if (!base64) throw new Error('A câmera não retornou a imagem.');
+      setInlineData({ mimeType, data: base64 });
+      setImagePreview(`data:${mimeType};base64,${base64}`);
+    } catch (e: any) {
+      // Capacitor throws on user-cancel too; keep message short.
+      const message = String(e?.message || '').trim();
+      if (message) setError(message);
+    }
+  };
+
+  const handleTakePhoto = () => {
+    if (isNativeRuntime()) {
+      void captureOrPickNative(CameraSource.Camera);
+      return;
+    }
+    cameraInputRef.current?.click();
+  };
+
+  const handlePickGallery = () => {
+    if (isNativeRuntime()) {
+      void captureOrPickNative(CameraSource.Photos);
+      return;
+    }
+    galleryInputRef.current?.click();
+  };
+
+  const clearImage = () => {
+    setImagePreview(null);
+    setInlineData(null);
+    setAnalysis(null);
+    setError(null);
+    if (galleryInputRef.current) galleryInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  };
+
+  const runAnalysis = async () => {
+    if (!inlineData) {
+      setError('Selecione uma foto do animal (câmera ou galeria).');
+      return;
+    }
+    setIsAnalyzing(true);
+    setError(null);
+    setAnalysis(null);
+    try {
+      const response = await apiFetch('/api/ai/dr-pasto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notes || '', inlineData }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        throw new Error(payload?.error || `Falha no servidor (${response.status}).`);
+      }
+      const data = payload?.data;
+      if (!data || typeof data !== 'object') throw new Error('Resposta inválida da IA.');
+      setAnalysis(data as DrPastoAnalysis);
+    } catch (e: any) {
+      setError(String(e?.message || 'Falha na análise.'));
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
       <div className="flex items-center gap-2 mb-4">
@@ -3613,15 +3771,185 @@ function DrPastoView({ user }: { user: User }) {
         <h2 className="text-xs font-black uppercase tracking-[0.2em] text-[#d2b48c]">Dr.Pasto</h2>
       </div>
       <p className="text-zinc-300 text-sm leading-relaxed mb-4">
-        Anotacoes rapidas e observacoes do pasto (salva no dispositivo).
+        Tire uma foto do animal ou importe da galeria para a IA sugerir suspeitas de doencas (nao e diagnostico definitivo).
       </p>
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="Escreva aqui..."
-        rows={10}
-        className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-      />
+
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <button
+          onClick={handleTakePhoto}
+          className="bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+        >
+          <Camera className="w-4 h-4" /> Tirar foto
+        </button>
+        <button
+          onClick={handlePickGallery}
+          className="bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+        >
+          <ImageIcon className="w-4 h-4" /> Galeria
+        </button>
+        {/* Web fallbacks */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => void handleFile(e.target.files?.[0])}
+          className="hidden"
+        />
+        <input
+          ref={galleryInputRef}
+          type="file"
+          accept="image/*"
+          onChange={(e) => void handleFile(e.target.files?.[0])}
+          className="hidden"
+        />
+      </div>
+
+      <div className="relative aspect-video bg-zinc-950/40 border border-white/10 rounded-[2rem] overflow-hidden mb-4">
+        {imagePreview ? (
+          <>
+            <img src={imagePreview} alt="Animal" className="w-full h-full object-cover" />
+            <button
+              onClick={clearImage}
+              className="absolute top-3 right-3 p-2 bg-black/60 rounded-2xl text-white hover:bg-red-500 transition-all shadow-xl backdrop-blur-md"
+              title="Remover foto"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center text-center p-6">
+            <div className="h-14 w-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 mb-3">
+              <ImageIcon className="w-7 h-7 text-[#d2b48c] opacity-70" />
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-300">Sem foto selecionada</p>
+            <p className="text-xs text-zinc-500 mt-2">Use "Tirar foto" ou "Galeria".</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Observacoes (opcional)</label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Ex: animal apatico, feridas, babacao, mancando, moscas, febre, diarreia..."
+          rows={5}
+          className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+        />
+      </div>
+
+      <button
+        onClick={() => void runAnalysis()}
+        disabled={isAnalyzing}
+        className="w-full bg-[#5a5a40] hover:bg-[#4a4a35] disabled:opacity-60 disabled:cursor-not-allowed text-[#f5f2ed] py-4 rounded-[2rem] font-black uppercase text-xs tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-2xl shadow-[#5a5a40]/30 active:scale-95"
+      >
+        {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Brain className="w-5 h-5" />}
+        {isAnalyzing ? 'Analisando...' : 'Analisar (IA)'}
+      </button>
+
+      {error && (
+        <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-300 text-xs font-medium">
+          {error}
+        </div>
+      )}
+
+      {analysis && (
+        <div className="mt-4 space-y-3">
+          <div className="bg-zinc-950/40 border border-white/10 rounded-[2rem] p-5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Especie provavel</p>
+            <p className="text-sm font-bold text-zinc-100">{analysis.especie_provavel}</p>
+          </div>
+
+          {Array.isArray(analysis.sinais_visuais) && analysis.sinais_visuais.length > 0 && (
+            <div className="bg-zinc-950/40 border border-white/10 rounded-[2rem] p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Sinais visuais</p>
+              <ul className="text-sm text-zinc-200 list-disc pl-5 space-y-1">
+                {analysis.sinais_visuais.map((s, idx) => (
+                  <li key={`sinal-${idx}`}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(analysis.suspeitas) && analysis.suspeitas.length > 0 && (
+            <div className="bg-zinc-950/40 border border-white/10 rounded-[2rem] p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-3">Suspeitas (IA)</p>
+              <div className="space-y-3">
+                {analysis.suspeitas.slice(0, 5).map((item, idx) => (
+                  <div key={`suspeita-${idx}`} className="bg-black/30 border border-white/10 rounded-2xl p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-bold text-zinc-100">{item.doenca}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#d2b48c]">
+                        {Math.round((Number(item.probabilidade) || 0) * 100)}%
+                      </p>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">Urgencia: {item.nivel_urgencia}</p>
+                    <p className="text-sm text-zinc-200 mt-3 leading-relaxed">{item.justificativa_visual}</p>
+                    {Array.isArray(item.acoes_imediatas) && item.acoes_imediatas.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Acoes imediatas</p>
+                        <ul className="text-sm text-zinc-200 list-disc pl-5 space-y-1">
+                          {item.acoes_imediatas.map((a, aidx) => (
+                            <li key={`acao-${idx}-${aidx}`}>{a}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {Array.isArray(analysis.perguntas_para_confirmar) && analysis.perguntas_para_confirmar.length > 0 && (
+            <div className="bg-zinc-950/40 border border-white/10 rounded-[2rem] p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Perguntas para confirmar</p>
+              <ul className="text-sm text-zinc-200 list-disc pl-5 space-y-1">
+                {analysis.perguntas_para_confirmar.slice(0, 8).map((q, idx) => (
+                  <li key={`q-${idx}`}>{q}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {analysis.quando_chamar_veterinario && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-[2rem] p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-300 mb-2">Quando chamar o veterinario</p>
+              <p className="text-sm text-amber-100 leading-relaxed">{analysis.quando_chamar_veterinario}</p>
+            </div>
+          )}
+
+          {analysis.aviso && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-[2rem] p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-red-300 mb-2">Aviso</p>
+              <p className="text-sm text-red-100 leading-relaxed">{analysis.aviso}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={clearImage}
+              className="bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 transition-all"
+            >
+              Nova analise
+            </button>
+            <button
+              onClick={() => {
+                try {
+                  void navigator.clipboard?.writeText(JSON.stringify(analysis, null, 2));
+                } catch {
+                  // ignore
+                }
+              }}
+              className="bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 transition-all"
+              title="Copiar resultado (JSON)"
+            >
+              Copiar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
