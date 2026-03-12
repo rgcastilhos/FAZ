@@ -3295,19 +3295,36 @@ function WeatherAlertsView({ user }: { user: User }) {
   const storageKey = `${user.username}_weather_alerts_v1`;
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [weather, setWeather] = useState<{
+    fetchedAt: number;
+    tz?: string;
+    current?: {
+      time?: string;
+      temperatureC?: number;
+      apparentTemperatureC?: number;
+      humidityPct?: number;
+      precipitationMm?: number;
+      windSpeedKmh?: number;
+      windDirectionDeg?: number;
+      weatherCode?: number;
+    };
+  } | null>(null);
+  const [isLoadingWeather, setIsLoadingWeather] = useState(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
   const [settings, setSettings] = useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (!raw) return { rainMm: '20', heatC: '35', coldC: '5', notes: '' };
+      if (!raw) return { rainMm: '20', heatC: '35', coldC: '5', notes: '', lastLocation: null as any };
       const parsed = JSON.parse(raw);
       return {
         rainMm: String(parsed?.rainMm ?? '20'),
         heatC: String(parsed?.heatC ?? '35'),
         coldC: String(parsed?.coldC ?? '5'),
         notes: String(parsed?.notes ?? ''),
+        lastLocation: parsed?.lastLocation ?? null,
       };
     } catch {
-      return { rainMm: '20', heatC: '35', coldC: '5', notes: '' };
+      return { rainMm: '20', heatC: '35', coldC: '5', notes: '', lastLocation: null as any };
     }
   });
 
@@ -3319,6 +3336,74 @@ function WeatherAlertsView({ user }: { user: User }) {
     }
   }, [settings, storageKey]);
 
+  useEffect(() => {
+    // Try to reuse the last location so the weather can load immediately without prompting.
+    if (location) return;
+    const raw = (settings as any)?.lastLocation;
+    if (!raw) return;
+    const lat = Number(raw?.latitude);
+    const lon = Number(raw?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    setLocation({ latitude: lat, longitude: lon });
+  }, [location, settings]);
+
+  const describeWeatherCode = (code?: number): string => {
+    if (typeof code !== 'number') return 'n/d';
+    // Open-Meteo weathercode: https://open-meteo.com/en/docs
+    if (code === 0) return 'Céu limpo';
+    if (code === 1) return 'Predom. limpo';
+    if (code === 2) return 'Parcialmente nublado';
+    if (code === 3) return 'Nublado';
+    if (code === 45 || code === 48) return 'Nevoeiro';
+    if (code === 51 || code === 53 || code === 55) return 'Garoa';
+    if (code === 56 || code === 57) return 'Garoa congelante';
+    if (code === 61 || code === 63 || code === 65) return 'Chuva';
+    if (code === 66 || code === 67) return 'Chuva congelante';
+    if (code === 71 || code === 73 || code === 75) return 'Neve';
+    if (code === 77) return 'Granizo (neve)';
+    if (code === 80 || code === 81 || code === 82) return 'Pancadas de chuva';
+    if (code === 85 || code === 86) return 'Pancadas de neve';
+    if (code === 95) return 'Trovoadas';
+    if (code === 96 || code === 99) return 'Trovoadas com granizo';
+    return `Código ${code}`;
+  };
+
+  const fetchWeatherNow = async (coords: { latitude: number; longitude: number }) => {
+    setIsLoadingWeather(true);
+    setWeatherError(null);
+    try {
+      const url =
+        `https://api.open-meteo.com/v1/forecast` +
+        `?latitude=${encodeURIComponent(String(coords.latitude))}` +
+        `&longitude=${encodeURIComponent(String(coords.longitude))}` +
+        `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m` +
+        `&timezone=auto`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const current = data?.current || {};
+      setWeather({
+        fetchedAt: Date.now(),
+        tz: String(data?.timezone || ''),
+        current: {
+          time: typeof current?.time === 'string' ? current.time : undefined,
+          temperatureC: typeof current?.temperature_2m === 'number' ? current.temperature_2m : undefined,
+          apparentTemperatureC: typeof current?.apparent_temperature === 'number' ? current.apparent_temperature : undefined,
+          humidityPct: typeof current?.relative_humidity_2m === 'number' ? current.relative_humidity_2m : undefined,
+          precipitationMm: typeof current?.precipitation === 'number' ? current.precipitation : undefined,
+          windSpeedKmh: typeof current?.wind_speed_10m === 'number' ? current.wind_speed_10m : undefined,
+          windDirectionDeg: typeof current?.wind_direction_10m === 'number' ? current.wind_direction_10m : undefined,
+          weatherCode: typeof current?.weather_code === 'number' ? current.weather_code : undefined,
+        },
+      });
+    } catch (err: any) {
+      setWeather(null);
+      setWeatherError(err?.message || 'Falha ao buscar o tempo.');
+    } finally {
+      setIsLoadingWeather(false);
+    }
+  };
+
   const fetchLocation = () => {
     setGettingLocation(true);
     if (!navigator.geolocation) {
@@ -3328,8 +3413,11 @@ function WeatherAlertsView({ user }: { user: User }) {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        setLocation(coords);
+        setSettings((p: any) => ({ ...p, lastLocation: coords }));
         setGettingLocation(false);
+        void fetchWeatherNow(coords);
       },
       () => {
         setLocation(null);
@@ -3338,6 +3426,37 @@ function WeatherAlertsView({ user }: { user: User }) {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
+
+  useEffect(() => {
+    // When the tab is opened (component mounts), load "tempo real" using last location if available.
+    if (!location) return;
+    void fetchWeatherNow(location);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const formatNumber = (v?: number, digits = 0): string => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/d';
+    return v.toFixed(digits);
+  };
+
+  const maybeAlert = (() => {
+    const rainThreshold = Number((settings as any)?.rainMm);
+    const heatThreshold = Number((settings as any)?.heatC);
+    const coldThreshold = Number((settings as any)?.coldC);
+    const temp = weather?.current?.temperatureC;
+    const rain = weather?.current?.precipitationMm;
+    const alerts: string[] = [];
+    if (typeof rain === 'number' && Number.isFinite(rain) && Number.isFinite(rainThreshold) && rain >= rainThreshold) {
+      alerts.push(`Chuva >= ${rainThreshold} mm`);
+    }
+    if (typeof temp === 'number' && Number.isFinite(temp) && Number.isFinite(heatThreshold) && temp >= heatThreshold) {
+      alerts.push(`Calor >= ${heatThreshold} C`);
+    }
+    if (typeof temp === 'number' && Number.isFinite(temp) && Number.isFinite(coldThreshold) && temp <= coldThreshold) {
+      alerts.push(`Frio <= ${coldThreshold} C`);
+    }
+    return alerts;
+  })();
 
   return (
     <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
@@ -3354,10 +3473,70 @@ function WeatherAlertsView({ user }: { user: User }) {
         >
           {gettingLocation ? 'Obtendo...' : 'Usar localização'}
         </button>
+        <button
+          onClick={() => location && fetchWeatherNow(location)}
+          disabled={!location || isLoadingWeather}
+          className="flex-1 bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          title={!location ? 'Defina a localizacao primeiro' : 'Atualizar agora'}
+        >
+          {isLoadingWeather ? 'Atualizando...' : 'Atualizar agora'}
+        </button>
         <div className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
           {location ? `${location.latitude.toFixed(3)}, ${location.longitude.toFixed(3)}` : 'sem local'}
         </div>
       </div>
+
+      <div className="bg-zinc-950/40 border border-white/10 rounded-2xl p-4 mb-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Tempo real</p>
+        {weatherError ? (
+          <p className="text-sm text-red-300">{weatherError}</p>
+        ) : !weather?.current ? (
+          <p className="text-sm text-zinc-300">
+            {location ? 'Clique em "Atualizar agora".' : 'Clique em "Usar localização" para buscar o tempo.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[11px] text-zinc-500 font-bold uppercase tracking-wide mb-1">Condição</p>
+              <p className="text-sm font-bold text-zinc-100">{describeWeatherCode(weather.current.weatherCode)}</p>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                {weather.current.time ? `Hora: ${weather.current.time}` : null}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-zinc-500 font-bold uppercase tracking-wide mb-1">Temperatura</p>
+              <p className="text-2xl font-black text-zinc-100 leading-none">{formatNumber(weather.current.temperatureC, 1)} C</p>
+              <p className="text-[11px] text-zinc-500 mt-1">Sensação: {formatNumber(weather.current.apparentTemperatureC, 1)} C</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-zinc-500 font-bold uppercase tracking-wide mb-1">Chuva</p>
+              <p className="text-sm font-bold text-zinc-100">{formatNumber(weather.current.precipitationMm, 1)} mm</p>
+              <p className="text-[11px] text-zinc-500 mt-1">Umidade: {formatNumber(weather.current.humidityPct, 0)}%</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-zinc-500 font-bold uppercase tracking-wide mb-1">Vento</p>
+              <p className="text-sm font-bold text-zinc-100">{formatNumber(weather.current.windSpeedKmh, 1)} km/h</p>
+              <p className="text-[11px] text-zinc-500 mt-1">Direção: {formatNumber(weather.current.windDirectionDeg, 0)} deg</p>
+            </div>
+          </div>
+        )}
+        {weather?.fetchedAt ? (
+          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-3">
+            Atualizado: {new Date(weather.fetchedAt).toLocaleString()} {weather?.tz ? `(${weather.tz})` : ''}
+          </p>
+        ) : null}
+      </div>
+
+      {maybeAlert.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 mb-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-red-300 mb-2">Alertas</p>
+          <ul className="text-sm text-red-200 list-disc pl-5">
+            {maybeAlert.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -3390,7 +3569,7 @@ function WeatherAlertsView({ user }: { user: User }) {
         <div className="bg-zinc-950/40 border border-white/10 rounded-2xl p-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Status</p>
           <p className="text-zinc-300 text-sm leading-relaxed">
-            Configure limites. Integracao com previsao/alertas pode ser ligada depois.
+            Tempo real: clique na aba e aperte "Atualizar agora".
           </p>
         </div>
       </div>
