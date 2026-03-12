@@ -3175,7 +3175,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
               : 'text-zinc-500 hover:text-zinc-300'
           }`}
         >
-          <DollarSign className="w-3.5 h-3.5" /> Cotação do Gado
+          <DollarSign className="w-3.5 h-3.5" /> Mercado
         </button>
         <button
           onClick={() => setActiveTab('weather_alerts')}
@@ -3214,20 +3214,21 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
 }
 
 function CattleQuotesView({ user }: { user: User }) {
-  const storageKey = `${user.username}_cattle_quotes_v1`;
+  const storageKey = `${user.username}_mercado_v1`;
   const [payload, setPayload] = useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (!raw) return { priceArroba: '', source: '', date: '', notes: '' };
-      const parsed = JSON.parse(raw);
-      return {
-        priceArroba: String(parsed?.priceArroba ?? ''),
-        source: String(parsed?.source ?? ''),
-        date: String(parsed?.date ?? ''),
-        notes: String(parsed?.notes ?? ''),
+      if (!raw) return { 
+        ufrgs: '', 
+        cepeaBoi: '', 
+        vacaGorda: '', 
+        novilho: '',
+        terneira: '',
+        terneiro: '' 
       };
+      return JSON.parse(raw);
     } catch {
-      return { priceArroba: '', source: '', date: '', notes: '' };
+      return { ufrgs: '', cepeaBoi: '', vacaGorda: '', novilho: '', terneira: '', terneiro: '' };
     }
   });
 
@@ -3241,50 +3242,99 @@ function CattleQuotesView({ user }: { user: User }) {
 
   return (
     <div className="bg-black/40 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl backdrop-blur-md">
-      <div className="flex items-center gap-2 mb-4">
-        <DollarSign className="w-4 h-4 text-[#d2b48c]" />
-        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-[#d2b48c]">Cotação do Gado</h2>
+      <div className="flex items-center gap-2 mb-6">
+        <DollarSign className="w-5 h-5 text-[#d2b48c]" />
+        <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Mercado</h2>
       </div>
-      <div className="grid grid-cols-1 gap-3">
+      <div className="space-y-4">
         <div>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Preço (@) BRL</label>
-          <input
-            value={payload.priceArroba}
-            onChange={(e) => setPayload((p: any) => ({ ...p, priceArroba: e.target.value }))}
-            inputMode="decimal"
-            placeholder="Ex: 245,50"
-            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Data</label>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Preço UFRGS/NESUI (Média Estadual)</label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
             <input
-              value={payload.date}
-              onChange={(e) => setPayload((p: any) => ({ ...p, date: e.target.value }))}
-              placeholder="Ex: 11/03/2026"
-              className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Fonte</label>
-            <input
-              value={payload.source}
-              onChange={(e) => setPayload((p: any) => ({ ...p, source: e.target.value }))}
-              placeholder="Ex: corretora, app, site"
-              className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
+              value={payload.ufrgs}
+              onChange={(e) => setPayload((p: any) => ({ ...p, ufrgs: e.target.value }))}
+              inputMode="decimal"
+              placeholder="0,00"
+              className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
             />
           </div>
         </div>
-        <div>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Notas</label>
-          <textarea
-            value={payload.notes}
-            onChange={(e) => setPayload((p: any) => ({ ...p, notes: e.target.value }))}
-            placeholder="Observações..."
-            rows={7}
-            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-          />
+
+        <div className="h-px bg-white/10 w-full my-4" />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Variação CEPEA: Boi Gordo (R$/Kg)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
+              <input
+                value={payload.cepeaBoi}
+                onChange={(e) => setPayload((p: any) => ({ ...p, cepeaBoi: e.target.value }))}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Vaca Gorda (R$/Kg)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
+              <input
+                value={payload.vacaGorda}
+                onChange={(e) => setPayload((p: any) => ({ ...p, vacaGorda: e.target.value }))}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 mt-2">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Novilho/Novilha (R$/Kg)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
+              <input
+                value={payload.novilho}
+                onChange={(e) => setPayload((p: any) => ({ ...p, novilho: e.target.value }))}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Terneira (R$/Kg)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
+              <input
+                value={payload.terneira}
+                onChange={(e) => setPayload((p: any) => ({ ...p, terneira: e.target.value }))}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ml-1">Terneiro (R$/Kg)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">R$</span>
+              <input
+                value={payload.terneiro}
+                onChange={(e) => setPayload((p: any) => ({ ...p, terneiro: e.target.value }))}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40 transition-all"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
