@@ -392,6 +392,12 @@ async function startServer() {
     }
 
     saveUsers(usersState);
+    
+    const chunk = `event: user_updated\ndata: ${JSON.stringify({ username: username.toLowerCase() })}\n\n`;
+    syncClients.forEach((client) => {
+      client.write(chunk);
+    });
+
     res.json({ ok: true, users: usersState.map(sanitizeUser) });
   });
 
@@ -415,6 +421,12 @@ async function startServer() {
 
     usersState.splice(index, 1);
     saveUsers(usersState);
+    
+    const chunk = `event: user_updated\ndata: ${JSON.stringify({ username: username.toLowerCase() })}\n\n`;
+    syncClients.forEach((client) => {
+      client.write(chunk);
+    });
+
     res.json({ ok: true, users: usersState.map(sanitizeUser) });
   });
 

@@ -4450,12 +4450,17 @@ function App() {
     const onOnline = () => {
       void validateLicense();
     };
+    const onForceRefresh = () => {
+      void validateLicense();
+    };
     window.addEventListener('online', onOnline);
+    window.addEventListener('user_force_refresh', onForceRefresh);
 
     return () => {
       isDisposed = true;
       window.clearInterval(timer);
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('user_force_refresh', onForceRefresh);
     };
   }, [currentUser]);
 
@@ -4557,6 +4562,22 @@ function App() {
             setSyncRevision((prev) => prev + 1);
           } catch (error) {
             console.error('Invalid sync payload:', error);
+          }
+        });
+        stream.addEventListener('user_updated', (event: MessageEvent) => {
+          if (isDisposed) return;
+          try {
+            const data = JSON.parse(event.data);
+            const currentUserStr = localStorage.getItem('current_user');
+            if (currentUserStr && data.username) {
+              const currentUser = JSON.parse(currentUserStr);
+              if (currentUser.username === data.username) {
+                // Dispara o evento customizado que a outra useEffect está ouvindo
+                window.dispatchEvent(new CustomEvent('user_force_refresh'));
+              }
+            }
+          } catch (e) {
+            console.error('Erro ao processar user_updated:', e);
           }
         });
         stream.onerror = (error) => {
