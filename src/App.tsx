@@ -554,7 +554,17 @@ function CameraView({ user }: { user: User | null }) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
-  const [yoloDetection, setYoloDetection] = useState<{box: number[], class: string, score: number} | null>(null);
+  const [yoloDetection, setYoloDetection] = useState<{
+    box: number[], 
+    class: string, 
+    score: number,
+    metricasFisicas?: {
+      alturaPixel: number;
+      larguraPixel: number;
+      areaOcupada: number;
+      proporcaoCorpo: number;
+    }
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
@@ -886,6 +896,7 @@ function CameraView({ user }: { user: User | null }) {
   };
 
   const processImageWithYOLO = async (imageElement: HTMLImageElement) => {
+    const { width: larguraOriginal, height: alturaOriginal } = imageElement;
     try {
       // 1. Carrega o modelo YOLO (Coloque os arquivos em public/models/yolo)
       const model = await tf.loadGraphModel('/models/yolo/model.json');
@@ -918,10 +929,28 @@ function CameraView({ user }: { user: User | null }) {
       const detections = await Promise.all(indices.map(async idx => {
         const [y, x, w, h] = rawBoxes[idx];
         const classIdx = rawClasses[idx];
+        
+        // Sincronização por Metadados Físicos
+        const ymin = y - h/2;
+        const xmin = x - w/2;
+        const ymax = y + h/2;
+        const xmax = x + w/2;
+        
+        const alturaPixel = (ymax - ymin) * alturaOriginal;
+        const larguraPixel = (xmax - xmin) * larguraOriginal;
+        const areaOcupada = alturaPixel * larguraPixel;
+        const proporcaoCorpo = larguraPixel / alturaPixel;
+
         return {
           box: [y, x, w, h],
           score: rawScores[idx],
-          class: YOLO_CLASSES[classIdx] || `Class ${classIdx}`
+          class: YOLO_CLASSES[classIdx] || `Class ${classIdx}`,
+          metricasFisicas: {
+            alturaPixel,
+            larguraPixel,
+            areaOcupada,
+            proporcaoCorpo
+          }
         };
       }));
 
@@ -972,11 +1001,12 @@ function CameraView({ user }: { user: User | null }) {
             // Usar a detecção com maior score (a primeira do NMS)
             const mainDetection = detections[0];
             
-            // Armazenar para o preview ANTES do crop
+            // Armazenar para o preview ANTES do crop e salvar métricas físicas
             setYoloDetection({
               box: mainDetection.box, 
               class: mainDetection.class, 
-              score: mainDetection.score
+              score: mainDetection.score,
+              metricasFisicas: mainDetection.metricasFisicas
             });
 
             const croppedResult = await cropBase64Image(capturedImages[0], mainDetection.box);
@@ -1127,6 +1157,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
               fotoOriginal: '', // Descartada para economizar espaço
               fotoRecortada: resizedCropped,
               confianca: yoloDetection?.score || 1.0,
+              metricasFisicas: yoloDetection?.metricasFisicas,
               resultText: formattedResult,
             }, user?.username);
           } catch (resizeErr) {
@@ -1138,6 +1169,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
               fotoOriginal: '',
               fotoRecortada: croppedImage || originalImage,
               confianca: yoloDetection?.score || 1.0,
+              metricasFisicas: yoloDetection?.metricasFisicas,
             }, user?.username);
           }
         } else {

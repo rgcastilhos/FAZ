@@ -9,6 +9,12 @@ export interface Pesagem {
   fotoRecortada: string; // Base64 apenas do boi (gerada pelo YOLO)
   confianca: number;    // Nível de certeza da IA
   username?: string;
+  metricasFisicas?: {
+    alturaPixel: number;
+    larguraPixel: number;
+    areaOcupada: number;
+    proporcaoCorpo: number;
+  };
 }
 
 export interface TrainingData {
@@ -55,7 +61,8 @@ export const addHistory = async (data: any, username?: string) => {
     fotoOriginal: data.fotoOriginal || data.imageData || '',
     fotoRecortada: data.fotoRecortada || data.imageData || '',
     confianca: data.confianca || data.yoloDetection?.score || 1.0,
-    username
+    username,
+    metricasFisicas: data.metricasFisicas
   };
   return db.pesagens.add(pesagem);
 };
