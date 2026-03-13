@@ -1071,24 +1071,23 @@ function CameraView({ user }: { user: User | null }) {
 
       let payload: any;
       try {
-        // TFLite desativado temporariamente conforme solicitado pelo usuário até que o modelo esteja pronto
-        // let tfliteResult = null;
-        // if (estimationMode === 'camera' && TFLiteService.isAvailable() && capturedImages.length > 0) {
-        //   console.log("[TFLite] Tentando inferência local antes da nuvem...");
-        //   tfliteResult = await TFLiteService.estimateWeight(capturedImages[0]);
-        // }
+        let tfliteResult = null;
+        if (estimationMode === 'camera' && TFLiteService.isAvailable() && capturedImages.length > 0) {
+          console.log("[TFLite] Tentando inferência local antes da nuvem...");
+          tfliteResult = await TFLiteService.estimateWeight(capturedImages[0]);
+        }
 
-        if (false) { // Substituído tfliteResult por false para forçar fallback para nuvem
-          // console.log("[TFLite] Usando resultado local:", tfliteResult);
-          // payload = {
-          //   data: {
-          //     peso_estimado_kg: tfliteResult.weight_kg,
-          //     raca: tfliteResult.class_name || 'Detectado (Local)',
-          //     sexo: 'N/D',
-          //     ecc: 'N/D',
-          //     analise_visual: `Estimativa realizada via processamento local TFLite (Confiança: ${(tfliteResult.confidence * 100).toFixed(1)}%).`
-          //   }
-          // };
+        if (tfliteResult) { 
+          console.log("[TFLite] Usando resultado local:", tfliteResult);
+          payload = {
+            data: {
+              peso_estimado_kg: tfliteResult.weight_kg,
+              raca: tfliteResult.class_name || 'Detectado (Local)',
+              sexo: 'N/D',
+              ecc: 'N/D',
+              analise_visual: `Estimativa realizada via processamento local TFLite (Confiança: ${(tfliteResult.confidence * 100).toFixed(1)}%).`
+            }
+          };
         } else {
           // Fallback para API Cloud (Atualmente o modo PRINCIPAL)
           const response = await apiFetch('/api/ai/estimate-weight', {
@@ -4427,23 +4426,6 @@ const OFFLINE_AUTH_KEY = '__offline_auth_v1';
 const OFFLINE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 const ADMIN_CODE_KEY = '__admin_code';
 const ADMIN_USERNAME_KEY = '__admin_username';
-
-const isNativeRuntime = (): boolean => {
-  // Prefer the Capacitor import; in some builds window.Capacitor is not reliable.
-  try {
-    if (Capacitor?.isNativePlatform && typeof Capacitor.isNativePlatform === 'function') {
-      if (Capacitor.isNativePlatform()) return true;
-    }
-  } catch {
-    // ignore
-  }
-  const cap = (window as any)?.Capacitor;
-  if (cap?.isNativePlatform && typeof cap.isNativePlatform === 'function') {
-    return !!cap.isNativePlatform();
-  }
-  const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
-  return protocol === 'capacitor:' || protocol === 'file:';
-};
 
 const getApiBaseUrl = (): string => {
   if (isNativeRuntime()) return DEFAULT_NATIVE_API_BASE;

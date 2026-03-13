@@ -195,3 +195,12 @@ export const cropBase64Image = (base64: string, box: number[], padding = 0.1): P
     img.src = base64;
   });
 };
+
+export const isNativeRuntime = (): boolean => {
+  try {
+    const Cap = (window as any).Capacitor;
+    return !!(Cap && Cap.isNativePlatform);
+  } catch (e) {
+    return false;
+  }
+};

@@ -54,3 +54,19 @@
     "NEW INSTRUCTION": "WHEN creating or updating ML scripts THEN add a 'Verification' confirming file creation and validation"
 }
 
+[2026-03-13 04:58] - Updated by Junie
+{
+    "TYPE": "correction",
+    "CATEGORY": "Detection threshold and storage",
+    "EXPECTATION": "Increase the confidence threshold to 0.60 when drawing boxes on fences and save the detection results using Dexie.js.",
+    "NEW INSTRUCTION": "WHEN drawing boxes for fence detections THEN use 0.60 threshold and persist to Dexie"
+}
+
+[2026-03-13 05:26] - Updated by Junie
+{
+    "TYPE": "preference",
+    "CATEGORY": "Processing mode confirmation",
+    "EXPECTATION": "Begin using TFLite for weight estimation now that the user has confirmed it is ready; stop forcing cloud-only.",
+    "NEW INSTRUCTION": "WHEN estimating weight AND user confirmed TFLite ready THEN use TFLite locally and skip cloud"
+}
+
