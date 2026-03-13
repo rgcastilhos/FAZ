@@ -9,6 +9,32 @@ Este projeto agora suporta a integração de modelos TensorFlow Lite para estima
 
 ## Como Gerar o Modelo (`model.tflite`)
 
+### Opção A: Usando YOLO (Recomendado para Detecção e Classificação)
+Se você está usando modelos YOLO (v8, v9, v10, v11) da Ultralytics:
+
+1. **Instale a biblioteca**:
+   ```bash
+   pip install ultralytics
+   ```
+
+2. **Treine seu modelo**:
+   Treine normalmente usando o YOLO CLI ou Python para obter o arquivo `best.pt`.
+
+3. **Exporte para TFLite com Quantização INT8**:
+   Use o comando solicitado para máxima performance em dispositivos móveis (menor tamanho e maior velocidade):
+   ```python
+   from ultralytics import YOLO
+   model = YOLO('best.pt')
+   model.export(format='tflite', int8=True)
+   ```
+   Ou use o script auxiliar fornecido:
+   ```bash
+   python ml/export_yolo_tflite.py --model path/to/best.pt
+   ```
+
+### Opção B: Usando TensorFlow Keras (MobileNetV3)
+Ideal para classificação simples de imagens:
+
 1. **Prepare o Dataset**:
    Organize suas fotos de animais em pastas por classe (ex: raças ou faixas de peso) dentro de uma pasta `dataset_raw/`.
    ```bash
