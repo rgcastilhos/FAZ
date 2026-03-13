@@ -684,7 +684,7 @@ Desejo obter dois conjuntos de dados específicos:
    - Terneiro (R$/kg vivo)
    - Terneira (R$/kg vivo)
 
-2. Cotações de Reposição da Scot Consultoria para o Rio Grande do Sul:
+2. Cotações de Reposição da SEPEA para o Rio Grande do Sul:
    Link de referência: https://www.scotconsultoria.com.br/cotacoes/reposicao/?ref=smn
    Extraia os valores em Reais (R$) para:
    - Boi Magro
@@ -731,7 +731,7 @@ Formato JSON obrigatório (retorne APENAS o JSON, sem marcações markdown ou te
       const data = JSON.parse(text);
       res.json({ data, fetchedAt: Date.now() });
     } catch (error: any) {
-      sendAiError(res, error, "Falha ao buscar cotações da Scot Consultoria.");
+      sendAiError(res, error, "Falha ao buscar cotações da SEPEA.");
     }
   });
 

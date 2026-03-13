@@ -3473,7 +3473,7 @@ function CattleQuotesView({ user }: { user: User }) {
         <UfrgsSection />
         
         <div className="pt-2 pb-1 border-b border-white/10">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d2b48c]/60">Reposição Scot Consultoria</h3>
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d2b48c]/60">Reposição SEPEA</h3>
         </div>
 
         <ScotSection title="Boi Magro" category="boi_magro" data={payload.scot_rs?.boi_magro} colorClass="bg-[#d2b48c]" />
@@ -3485,7 +3485,7 @@ function CattleQuotesView({ user }: { user: User }) {
 
       <div className="mt-6 p-3 bg-zinc-950/40 rounded-xl border border-white/5">
         <p className="text-[8px] text-zinc-500 italic text-center">
-          Fontes: UFRGS (CEPEA/RS) e Scot Consultoria (Reposição RS)
+          Fontes: UFRGS (CEPEA/RS) e SEPEA (Reposição RS)
         </p>
       </div>
     </div>
