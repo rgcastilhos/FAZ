@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
+import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users as UsersIcon, Key, LayoutGrid, Tractor, Beef, Settings, User as UserIcon, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -776,7 +776,7 @@ function CameraView({ user }: { user: User | null }) {
   const handleFilesUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      Array.from(files).forEach(file => {
+      Array.from(files).forEach((file: File) => {
         const reader = new FileReader();
         reader.onloadend = async () => {
           const result = reader.result as string;
@@ -787,10 +787,9 @@ function CameraView({ user }: { user: User | null }) {
             await loadGallery();
           } catch (e) {
             console.error("Failed to save to DB", e);
-            // setError("Erro ao salvar imagem no banco de dados.");
           }
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(file as Blob);
       });
       stopCamera();
     }
@@ -1010,13 +1009,13 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
                 onChange={(e) => {
                   const files = e.target.files;
                   if (files && files.length > 0) {
-                    Array.from(files).forEach(file => {
+                    Array.from(files).forEach((file: File) => {
                       const reader = new FileReader();
                       reader.onloadend = () => {
                         setCapturedImages(prev => [...prev, reader.result as string]);
                         setError(null);
                       };
-                      reader.readAsDataURL(file);
+                      reader.readAsDataURL(file as Blob);
                     });
                   }
                 }}
@@ -2284,7 +2283,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
           <div className="bg-black/20 rounded-[2rem] p-5 border border-white/5 flex items-center justify-between shadow-inner">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-[#5a5a40]/10 flex items-center justify-center border border-[#5a5a40]/20">
-                <User className="w-6 h-6 text-[#d2b48c] opacity-60" />
+                <UserIcon className="w-6 h-6 text-[#d2b48c] opacity-60" />
               </div>
               <div>
                 <p className="text-xs font-black text-zinc-100 uppercase tracking-tight">Administrador</p>
@@ -3015,7 +3014,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
           <h1 className="text-4xl font-serif italic font-bold tracking-tight text-[#f5f2ed]">FazendaOn</h1>
           <div className="flex flex-col gap-1 mt-2">
             <p className="text-[10px] text-[#d2b48c] font-black uppercase tracking-[0.2em] flex items-center gap-2">
-              <User className="w-3 h-3" /> {user.name} {user.role === 'admin' && <span className="opacity-60">(Admin)</span>}
+              <UserIcon className="w-3 h-3" /> {user.name} {user.role === 'admin' && <span className="opacity-60">(Admin)</span>}
             </p>
           </div>
         </div>
@@ -3089,7 +3088,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
           }`}
           title={isAdmin ? 'Usuarios' : 'Acesso restrito (Admin)'}
         >
-          <Users className="w-3.5 h-3.5" /> Usuários {!isAdmin && <Lock className="w-3 h-3 opacity-70" />}
+          <UsersIcon className="w-3.5 h-3.5" /> Usuários {!isAdmin && <Lock className="w-3 h-3 opacity-70" />}
         </button>
         <button
           onClick={() => setActiveTab('training')}
@@ -3991,7 +3990,7 @@ function DrPastoView({ user }: { user: User }) {
 
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={clearImage}
+              onClick={clearImages}
               className="bg-white/5 border border-white/10 rounded-2xl py-3 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:bg-white/10 transition-all"
             >
               Nova analise
