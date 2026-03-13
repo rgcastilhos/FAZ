@@ -9,7 +9,7 @@ import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addT
 // Import types and utilities
 import type { User, GalleryItem, InventoryItem, Category, CardOptions, AppSettings, MapGroundingLink, WeatherData, TrainingData } from './types';
 import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './constants';
-import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image } from './utils/formatters';
+import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image, cropBase64Image } from './utils/formatters';
 import { TFLiteService } from './services/tflite';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UpdateButton } from './components/UpdateButton';
@@ -936,8 +936,19 @@ function CameraView({ user }: { user: User | null }) {
           await new Promise((resolve) => { img.onload = resolve; });
           const detections = await processImageWithYOLO(img);
           
-          if (detections && detections.length === 0) {
-            console.warn("[YOLO] Nenhum animal detectado na imagem.");
+          if (detections && detections.length > 0) {
+            console.log(`[YOLO] ${detections.length} animal(is) detectado(s). Recortando...`);
+            // Usar a detecção com maior score (a primeira do NMS)
+            const mainDetection = detections[0];
+            const croppedImage = await cropBase64Image(capturedImages[0], mainDetection.box);
+            
+            // Substituir no array para que a análise Cloud use a imagem limpa
+            setCapturedImages([croppedImage]);
+            
+            // Garantir que a imagem limpa seja usada nas variáveis locais do restante da função
+            capturedImages[0] = croppedImage;
+          } else {
+            console.warn("[YOLO] Nenhum animal detectado na imagem. Prosseguindo com imagem original.");
           }
         } catch (yoloErr) {
           console.warn("[YOLO] Falha na detecção, prosseguindo com fluxo normal:", yoloErr);

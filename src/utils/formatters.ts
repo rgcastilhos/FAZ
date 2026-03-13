@@ -145,3 +145,53 @@ export const resizeImageFile = (file: File, maxWidth = 1024, maxHeight = 1024, q
     reader.readAsDataURL(file);
   });
 };
+
+export const cropBase64Image = (base64: string, box: number[], padding = 0.1): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('Falha ao processar a imagem.'));
+    img.onload = () => {
+      // YOLO box format: [x_center, y_center, width, height] in normalized coordinates (0 to 640)
+      // Note: My current parseYOLOOutput returns raw values from the model which is 640x640
+      
+      const [x_center, y_center, w, h] = box;
+      
+      // Calculate top-left and bottom-right in 640x640 space
+      let x1 = x_center - w / 2;
+      let y1 = y_center - h / 2;
+      let x2 = x_center + w / 2;
+      let y2 = y_center + h / 2;
+
+      // Add padding (as percentage of box size)
+      const padW = w * padding;
+      const padH = h * padding;
+      x1 = Math.max(0, x1 - padW);
+      y1 = Math.max(0, y1 - padH);
+      x2 = Math.min(640, x2 + padW);
+      y2 = Math.min(640, y2 + padH);
+
+      // Convert from 640x640 space to original image space
+      const scaleX = img.width / 640;
+      const scaleY = img.height / 640;
+
+      const sx = x1 * scaleX;
+      const sy = y1 * scaleY;
+      const sWidth = (x2 - x1) * scaleX;
+      const sHeight = (y2 - y1) * scaleY;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+      const ctx = canvas.getContext('2d');
+      
+      if (ctx) {
+        ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+        // Return a slightly higher quality crop, can be resized later if needed
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      } else {
+        resolve(base64);
+      }
+    };
+    img.src = base64;
+  });
+};
