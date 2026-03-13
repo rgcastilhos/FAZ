@@ -277,13 +277,12 @@ async function startServer() {
   });
 
   app.get("/api/version", (req, res) => {
+    const currentVersion = process.env.APP_VERSION || "1.0.0";
     res.json({
-      commit:
-        (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.SOURCE_VERSION || "").trim() ||
-        null,
-      service: (process.env.RENDER_SERVICE_NAME || "").trim() || null,
-      env: (process.env.NODE_ENV || "").trim() || null,
-      now: new Date().toISOString(),
+      version: currentVersion,
+      releaseDate: new Date().toISOString(),
+      changelog: "Melhorias de qualidade e correções de bugs",
+      isRequired: false,
     });
   });
 

@@ -10,6 +10,7 @@ import type { User, GalleryItem, InventoryItem, Category, CardOptions, AppSettin
 import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './constants';
 import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId } from './utils/formatters';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { UpdateButton } from './components/UpdateButton';
 
 const FARM_ICON_MAP: Record<string, React.ReactNode> = {
   cow: <Beef className="w-5 h-5" />,
@@ -3009,6 +3010,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
       className="min-h-screen text-zinc-100 flex flex-col items-center p-4 sm:p-8 font-sans transition-colors duration-500"
       style={{ backgroundColor: settings.dashboardBgColor || '#1a1a1a' }}
     >
+      <UpdateButton />
       <header className="w-full max-w-md mb-4 flex items-center justify-between animate-in fade-in slide-in-from-top-4 duration-500">
         <div>
           <h1 className="text-4xl font-serif italic font-bold tracking-tight text-[#f5f2ed]">FazendaOn</h1>
