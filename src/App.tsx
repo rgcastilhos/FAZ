@@ -5,104 +5,11 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
 
-// Default admin code to access user management
-const ADMIN_CODE = import.meta.env.VITE_ADMIN_CODE || "ADMIN123";
-
-interface User {
-  username: string;
-  password?: string;
-  name: string;
-  role: 'admin' | 'user';
-  createdAt?: number;
-  expiresAt?: number;
-  viewingUser?: string; // For admin to view another user's farm
-}
-
-interface GalleryItem {
-  id: number;
-  data: string;
-  createdAt: number;
-}
-
-// --- Farm Module Types ---
-interface InventoryItem {
-  id: string;
-  name: string;
-  quantity: number;
-  photo?: string;
-  categoryId: string;
-  createdAt: number;
-  isSelectedForSum: boolean;
-  tickProtocolDays?: number;
-}
-
-interface Category {
-  id: string;
-  name: string;
-  icon: string;
-}
-
-interface CardOptions {
-  showPhoto: boolean;
-  showRef: boolean;
-  showQuantity: boolean;
-  showDate: boolean;
-  showCheckbox: boolean;
-}
-
-interface AppSettings {
-  theme: string;
-  farmName: string;
-  backgroundImage?: string;
-  userEmail?: string;
-  cardOptions?: CardOptions;
-  dashboardBgColor?: string;
-  loginBgImage?: string;
-}
-
-interface MapGroundingLink {
-  uri: string;
-  title?: string;
-  snippet?: string;
-}
-
-const toInputDate = (value?: number): string => {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toISOString().split('T')[0];
-};
-
-const toDisplayDate = (value?: number): string => {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString();
-};
-
-const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'cat-1', name: 'Gado de Corte', icon: 'cow' },
-  { id: 'cat-2', name: 'Maquinário', icon: 'tractor' },
-  { id: 'cat-3', name: 'Insumos', icon: 'wheat' },
-];
-
-const DEFAULT_CARD_OPTIONS: CardOptions = {
-  showPhoto: true,
-  showRef: true,
-  showQuantity: true,
-  showDate: false,
-  showCheckbox: true,
-};
-
-const THEMES: Record<string, any> = {
-  rural: { primary: 'bg-[#5a5a40]', hover: 'hover:bg-[#4a4a35]', dark: 'bg-[#3a3a2a]', text: 'text-[#d2b48c]', light: 'bg-[#5a5a40]/10', border: 'border-[#5a5a40]/50', shadow: 'shadow-[#5a5a40]/20', accent: 'text-[#f5deb3]' },
-  emerald: { primary: 'bg-emerald-600', hover: 'hover:bg-emerald-700', dark: 'bg-emerald-900', text: 'text-emerald-400', light: 'bg-emerald-500/10', border: 'border-emerald-500/50', shadow: 'shadow-emerald-500/20' },
-  blue: { primary: 'bg-blue-600', hover: 'hover:bg-blue-700', dark: 'bg-blue-900', text: 'text-blue-400', light: 'bg-blue-500/10', border: 'border-blue-500/50', shadow: 'shadow-blue-500/20' },
-  amber: { primary: 'bg-amber-600', hover: 'hover:bg-amber-700', dark: 'bg-amber-900', text: 'text-amber-400', light: 'bg-amber-500/10', border: 'border-amber-500/50', shadow: 'shadow-amber-500/20' },
-  slate: { primary: 'bg-slate-600', hover: 'hover:bg-slate-700', dark: 'bg-slate-900', text: 'text-slate-400', light: 'bg-slate-500/10', border: 'border-slate-500/50', shadow: 'shadow-slate-500/20' },
-  rose: { primary: 'bg-rose-600', hover: 'hover:bg-rose-700', dark: 'bg-rose-900', text: 'text-rose-400', light: 'bg-rose-500/10', border: 'border-rose-500/50', shadow: 'shadow-rose-500/20' },
-  brown: { primary: 'bg-orange-800', hover: 'hover:bg-orange-900', dark: 'bg-orange-950', text: 'text-orange-400', light: 'bg-orange-500/10', border: 'border-orange-800/50', shadow: 'shadow-orange-500/20' },
-};
+// Import types and utilities
+import type { User, GalleryItem, InventoryItem, Category, CardOptions, AppSettings, MapGroundingLink, WeatherData, TrainingData } from './types';
+import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './constants';
+import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId } from './utils/formatters';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const FARM_ICON_MAP: Record<string, React.ReactNode> = {
   cow: <Beef className="w-5 h-5" />,
@@ -3452,27 +3359,6 @@ function WeatherAlertsView({ user }: { user: User }) {
     setLocation({ latitude: lat, longitude: lon });
   }, [location, settings]);
 
-  const describeWeatherCode = (code?: number): string => {
-    if (typeof code !== 'number') return 'n/d';
-    // Open-Meteo weathercode: https://open-meteo.com/en/docs
-    if (code === 0) return 'Céu limpo';
-    if (code === 1) return 'Predom. limpo';
-    if (code === 2) return 'Parcialmente nublado';
-    if (code === 3) return 'Nublado';
-    if (code === 45 || code === 48) return 'Nevoeiro';
-    if (code === 51 || code === 53 || code === 55) return 'Garoa';
-    if (code === 56 || code === 57) return 'Garoa congelante';
-    if (code === 61 || code === 63 || code === 65) return 'Chuva';
-    if (code === 66 || code === 67) return 'Chuva congelante';
-    if (code === 71 || code === 73 || code === 75) return 'Neve';
-    if (code === 77) return 'Granizo (neve)';
-    if (code === 80 || code === 81 || code === 82) return 'Pancadas de chuva';
-    if (code === 85 || code === 86) return 'Pancadas de neve';
-    if (code === 95) return 'Trovoadas';
-    if (code === 96 || code === 99) return 'Trovoadas com granizo';
-    return `Código ${code}`;
-  };
-
   const fetchWeatherNow = async (coords: { latitude: number; longitude: number }) => {
     setIsLoadingWeather(true);
     setWeatherError(null);
@@ -3558,11 +3444,6 @@ function WeatherAlertsView({ user }: { user: User }) {
     if (!location) return;
     void fetchWeatherNow(location);
   }, [location]);
-
-  const formatNumber = (v?: number, digits = 0): string => {
-    if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/d';
-    return v.toFixed(digits);
-  };
 
   const maybeAlert = (() => {
     const rainThreshold = Number((settings as any)?.rainMm);
@@ -4660,10 +4541,18 @@ function App() {
   };
 
   if (!currentUser) {
-    return <LoginScreen onLogin={handleLogin} />;
+    return (
+      <ErrorBoundary>
+        <LoginScreen onLogin={handleLogin} />
+      </ErrorBoundary>
+    );
   }
 
-  return <Dashboard key={`${currentUser.username}-${syncRevision}`} user={currentUser} onLogout={handleLogout} onUpdateUser={handleUpdateUser} onManualSync={handleManualSync} isSyncing={isSyncing} />;
+  return (
+    <ErrorBoundary>
+      <Dashboard key={`${currentUser.username}-${syncRevision}`} user={currentUser} onLogout={handleLogout} onUpdateUser={handleUpdateUser} onManualSync={handleManualSync} isSyncing={isSyncing} />
+    </ErrorBoundary>
+  );
 }
 
 export default App;
