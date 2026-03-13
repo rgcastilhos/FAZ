@@ -839,6 +839,33 @@ function CameraView({ user }: { user: User | null }) {
     stopCamera();
   };
 
+  /**
+   * Traduz a saída bruta do Tensor do YOLO para coordenadas legíveis.
+   * Formato esperado: [1, 84, 8400] (para YOLOv8/v11)
+   */
+  const parseYOLOOutput = (output: tf.Tensor): [number[][], number[], number[]] => {
+    return tf.tidy(() => {
+      // 1. Reshape e Transpose para ter [8400, 84] 
+      // (8400 sugestões de caixas, cada uma com 4 coordenadas + 80 classes)
+      const reshaped = output.reshape([84, 8400]);
+      const transposed = reshaped.transpose([1, 0]); // Agora [8400, 84]
+
+      // 2. Extrair coordenadas e scores
+      const boxes = transposed.slice([0, 0], [-1, 4]); // [8400, 4]
+      const scores = transposed.slice([0, 4], [-1, -1]); // [8400, 80]
+      
+      // Pegar a maior probabilidade de classe para cada caixa
+      const maxScores = scores.max(1);
+      const classes = scores.argMax(1);
+
+      return [
+        boxes.arraySync() as number[][], 
+        maxScores.arraySync() as number[], 
+        classes.arraySync() as number[]
+      ];
+    });
+  };
+
   const processImageWithYOLO = async (imageElement: HTMLImageElement) => {
     try {
       // 1. Carrega o modelo YOLO (Coloque os arquivos em public/models/yolo_web)
@@ -853,18 +880,35 @@ function CameraView({ user }: { user: User | null }) {
       });
 
       // 3. Executa a inferência
-      const result = await model.executeAsync(input);
+      const result = await model.executeAsync(input) as tf.Tensor;
       
+      // 4. Parse do output
+      const [rawBoxes, rawScores, rawClasses] = parseYOLOOutput(result);
+
+      // 5. Aplicar NMS (Non-Maximum Suppression) para filtrar sobreposições
+      const selectedIndices = await tf.image.nonMaxSuppressionAsync(
+        tf.tensor2d(rawBoxes.map(b => [b[1] - b[3]/2, b[0] - b[2]/2, b[1] + b[3]/2, b[0] + b[2]/2])), // [y1, x1, y2, x2]
+        tf.tensor1d(rawScores),
+        5, // Máximo de 5 animais detectados
+        0.5, // IOU Threshold
+        0.45 // Score Threshold
+      );
+
+      const indices = await selectedIndices.array();
+      const detections = indices.map(idx => ({
+        box: rawBoxes[idx],
+        score: rawScores[idx],
+        class: rawClasses[idx]
+      }));
+
+      console.log("[YOLO] Detecções:", detections);
+
       // Cleanup
       input.dispose();
-      if (Array.isArray(result)) {
-        result.forEach(t => t.dispose());
-      } else {
-        result.dispose();
-      }
+      result.dispose();
+      selectedIndices.dispose();
       
-      console.log("[YOLO] Processamento concluído.");
-      return result;
+      return detections;
     } catch (e) {
       console.error("[YOLO] Erro ao processar imagem:", e);
       return null;
@@ -890,7 +934,11 @@ function CameraView({ user }: { user: User | null }) {
           const img = new Image();
           img.src = capturedImages[0];
           await new Promise((resolve) => { img.onload = resolve; });
-          await processImageWithYOLO(img);
+          const detections = await processImageWithYOLO(img);
+          
+          if (detections && detections.length === 0) {
+            console.warn("[YOLO] Nenhum animal detectado na imagem.");
+          }
         } catch (yoloErr) {
           console.warn("[YOLO] Falha na detecção, prosseguindo com fluxo normal:", yoloErr);
         }
