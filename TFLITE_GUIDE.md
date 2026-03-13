@@ -12,9 +12,11 @@ Este projeto agora suporta a integração de modelos TensorFlow Lite para estima
 ### Opção A: Usando YOLO (Recomendado para Detecção e Classificação)
 Se você está usando modelos YOLO (v8, v9, v10, v11) da Ultralytics:
 
-1. **Instale a biblioteca**:
+1. **Instale as bibliotecas**:
+   > **Nota Importante**: Atualmente, as bibliotecas de IA (Ultralytics/TensorFlow) suportam apenas versões do Python entre **3.8 e 3.11**. A versão 3.14 (experimental) ainda não é compatível.
    ```bash
-   pip install ultralytics
+   # Use Python 3.10 ou 3.11
+   pip install ultralytics tensorflow numpy
    ```
 
 2. **Treine seu modelo**:
@@ -79,8 +81,24 @@ Para que o modelo funcione nativamente, siga estes passos:
 3. **Ponte Nativa**:
    Atualmente, o código em `src/services/tflite.ts` está preparado para chamar uma ponte nativa. Você pode implementar essa ponte no `MainActivity.java` usando a biblioteca `tensorflow-lite` do Android.
 
+## Solução de Problemas (Troubleshooting)
+
+### Erro de Versão do Python (Python 3.14+)
+Se você vir erros de `ModuleNotFoundError` mesmo após o `pip install`, ou mensagens de que não há versões compatíveis de bibliotecas, verifique sua versão do Python:
+```bash
+python --version
+```
+As bibliotecas `ultralytics` e `tensorflow` ainda **não suportam Python 3.14**.
+**Solução**: 
+- Instale o **Python 3.10** ou **3.11**.
+- Recomendamos usar um ambiente virtual (`venv`) ou o [Google Colab](https://colab.research.google.com/) para rodar o treinamento, pois ele já vem com tudo configurado.
+
+### O modelo `.tflite` não aparece
+O comando `model.export(format='tflite', int8=True)` do YOLO cria uma pasta chamada `best_saved_model` dentro do diretório de pesos (`weights/`). O arquivo final estará lá com o nome `best_int8.tflite` (ou similar).
+
 ## Dependências (Python)
 Instale as dependências para treinamento:
 ```bash
-pip install tensorflow sklearn numpy
+# Recomendado: use Python 3.10 ou 3.11
+pip install tensorflow sklearn numpy ultralytics
 ```
