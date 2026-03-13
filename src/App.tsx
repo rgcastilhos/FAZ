@@ -2263,9 +2263,9 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
         </div>
       </header>
 
-      <div className="relative z-10 flex flex-col h-full flex-1 overflow-hidden">
+      <div className="relative z-10 flex flex-col md:flex-row h-full flex-1 overflow-hidden">
         {/* Sidebar - Desktop */}
-        <aside className="hidden">
+        <aside className="hidden md:flex md:flex-col w-64 bg-zinc-900/60 border-r border-white/10 overflow-y-auto no-scrollbar flex-shrink-0">
           <div className="flex items-center gap-4 mb-2">
             <div className="bg-[#5a5a40]/20 p-2.5 rounded-2xl border border-[#5a5a40]/30 shadow-inner">
               <Tractor className="w-10 h-10 text-[#d2b48c]" />
