@@ -2703,26 +2703,36 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
                 <section>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2 tracking-widest">Tema Visual</label>
                   <div className="grid grid-cols-3 gap-2">
-                    {Object.keys(THEMES).map(t => (
+                    {[
+                      { key: 'rural', label: 'Rural' },
+                      { key: 'emerald', label: 'Esmeralda' },
+                      { key: 'blue', label: 'Azul' }
+                    ].map(({ key, label }) => (
                       <button 
-                        key={t} onClick={() => setSettings(prev => ({ ...prev, theme: t }))}
-                        className={`p-3 rounded-xl border-2 transition-all ${settings.theme === t ? `${THEMES[t].border} ${THEMES[t].light}` : 'border-zinc-800 bg-zinc-950'}`}
+                        key={key} onClick={() => setSettings(prev => ({ ...prev, theme: key }))}
+                        className={`p-3 rounded-xl border-2 transition-all ${settings.theme === key ? `${THEMES[key].border} ${THEMES[key].light}` : 'border-zinc-800 bg-zinc-950'}`}
                       >
-                        <div className={`w-full h-2 rounded ${THEMES[t].primary} mb-1`} />
-                        <span className={`text-[10px] font-bold uppercase ${settings.theme === t ? THEMES[t].text : 'text-zinc-400'}`}>{t}</span>
+                        <div className={`w-full h-2 rounded ${THEMES[key].primary} mb-1`} />
+                        <span className={`text-[10px] font-bold uppercase ${settings.theme === key ? THEMES[key].text : 'text-zinc-400'}`}>{label}</span>
                       </button>
                     ))}
                   </div>
                 </section>
                 <section>
-                  <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2 tracking-widest">Opções de Card</label>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2 tracking-widest">Opções de Cartão</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {Object.entries(cardOptions).map(([key, val]) => (
+                    {[
+                      { key: 'showPhoto', label: 'Foto' },
+                      { key: 'showRef', label: 'Referência' },
+                      { key: 'showQuantity', label: 'Quantidade' },
+                      { key: 'showDate', label: 'Data' },
+                      { key: 'showCheckbox', label: 'Seleção' }
+                    ].map(({ key, label }) => (
                       <button 
                         key={key} onClick={() => toggleCardOption(key as keyof CardOptions)}
-                        className={`p-2 rounded-lg border text-[10px] font-bold uppercase transition-all ${val ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400' : 'border-zinc-800 bg-zinc-950 text-zinc-500'}`}
+                        className={`p-2 rounded-lg border text-[10px] font-bold uppercase transition-all ${cardOptions[key as keyof CardOptions] ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400' : 'border-zinc-800 bg-zinc-950 text-zinc-500'}`}
                       >
-                        {key.replace('show', '')}
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -2784,7 +2794,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
                    </h3>
                    <div className="space-y-3">
                       <input 
-                        placeholder="E-mail para Sincronia" 
+                        placeholder="E-mail para Sincronização" 
                         className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-white outline-none focus:border-[#d2b48c]"
                         value={settings.userEmail || ''}
                         onChange={(e) => setSettings(prev => ({ ...prev, userEmail: e.target.value }))}
