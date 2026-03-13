@@ -845,11 +845,17 @@ function CameraView({ user }: { user: User | null }) {
   // 1. Mapeamento de Classes YOLO (metadata)
   const YOLO_CLASSES: Record<number, string> = {
     0: 'Cattle',
-    1: 'Horse',
-    2: 'Sheep',
-    3: 'Goat',
-    11: 'Owl', // Exemplo de classe específica solicitada
-    // Adicione mais conforme o seu treinamento
+    1: 'Pig',
+    2: 'Horse',
+    3: 'Sheep',
+    4: 'Goat',
+    5: 'Chicken',
+    6: 'Mule',
+    7: 'Duck',
+    8: 'Fox',
+    9: 'Raccoon',
+    10: 'Bear',
+    11: 'Owl',
   };
 
   /**
@@ -906,6 +912,8 @@ function CameraView({ user }: { user: User | null }) {
         0.5, // IOU Threshold
         0.60 // Score Threshold aumentado para reduzir falsos positivos
       );
+
+      const indices = Array.from(await selectedIndices.data());
 
       const detections = await Promise.all(indices.map(async idx => {
         const [y, x, w, h] = rawBoxes[idx];
