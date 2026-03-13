@@ -842,6 +842,16 @@ function CameraView({ user }: { user: User | null }) {
     stopCamera();
   };
 
+  // 1. Mapeamento de Classes YOLO (metadata)
+  const YOLO_CLASSES: Record<number, string> = {
+    0: 'Cattle',
+    1: 'Horse',
+    2: 'Sheep',
+    3: 'Goat',
+    11: 'Owl', // Exemplo de classe específica solicitada
+    // Adicione mais conforme o seu treinamento
+  };
+
   /**
    * Traduz a saída bruta do Tensor do YOLO para coordenadas legíveis.
    * Formato esperado: [1, 84, 8400] (para YOLOv8/v11)
@@ -871,8 +881,8 @@ function CameraView({ user }: { user: User | null }) {
 
   const processImageWithYOLO = async (imageElement: HTMLImageElement) => {
     try {
-      // 1. Carrega o modelo YOLO (Coloque os arquivos em public/models/yolo_web)
-      const model = await tf.loadGraphModel('/models/yolo_web/model.json');
+      // 1. Carrega o modelo YOLO (Coloque os arquivos em public/models/yolo)
+      const model = await tf.loadGraphModel('/models/yolo/model.json');
       
       // 2. Pré-processamento da imagem para o formato YOLO (640x640)
       const input = tf.tidy(() => {
@@ -897,15 +907,15 @@ function CameraView({ user }: { user: User | null }) {
         0.60 // Score Threshold aumentado para reduzir falsos positivos
       );
 
-      const indices = await selectedIndices.array();
-      const detections = indices.map(idx => {
-        const [y1, x1, y2, x2] = rawBoxes[idx];
+      const detections = await Promise.all(indices.map(async idx => {
+        const [y, x, w, h] = rawBoxes[idx];
+        const classIdx = rawClasses[idx];
         return {
-          box: [y1, x1, y2, x2],
+          box: [y, x, w, h],
           score: rawScores[idx],
-          class: rawClasses[idx] === 0 ? 'Cattle' : 'Animal' // Assumindo 0 como cattle no seu modelo
+          class: YOLO_CLASSES[classIdx] || `Class ${classIdx}`
         };
-      });
+      }));
 
       console.log("[YOLO] Detecções:", detections);
 
