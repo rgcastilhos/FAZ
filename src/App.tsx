@@ -1931,7 +1931,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     }
   });
 
-  const currentTheme = THEMES[settings.theme || 'emerald'];
+  const currentTheme = THEMES[(settings.theme as keyof typeof THEMES)] || THEMES.emerald;
   const cardOptions = { ...DEFAULT_CARD_OPTIONS, ...(settings.cardOptions || {}) };
 
   const [activeCategoryId, setActiveCategoryId] = useState<string>(categories[0]?.id || '');
@@ -3529,7 +3529,7 @@ function WeatherAlertsView({ user }: { user: User }) {
         )}
         {weather?.fetchedAt ? (
           <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-3">
-            Atualizado: {new Date(weather.fetchedAt).toLocaleString()} {weather?.tz ? `(${weather.tz})` : ''}
+            Atualizado: {new Date(weather.fetchedAt).toLocaleString()} {weather?.locationName ? `(${weather.locationName})` : ''}
           </p>
         ) : null}
       </div>
@@ -3545,41 +3545,7 @@ function WeatherAlertsView({ user }: { user: User }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Chuva (mm)</label>
-          <input
-            value={settings.rainMm}
-            onChange={(e) => setSettings((p: any) => ({ ...p, rainMm: e.target.value }))}
-            inputMode="numeric"
-            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-          />
-        </div>
-        <div>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Calor (C)</label>
-          <input
-            value={settings.heatC}
-            onChange={(e) => setSettings((p: any) => ({ ...p, heatC: e.target.value }))}
-            inputMode="numeric"
-            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-          />
-        </div>
-        <div>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Frio (C)</label>
-          <input
-            value={settings.coldC}
-            onChange={(e) => setSettings((p: any) => ({ ...p, coldC: e.target.value }))}
-            inputMode="numeric"
-            className="w-full bg-zinc-950/60 border border-white/10 rounded-2xl px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5a5a40]/40"
-          />
-        </div>
-        <div className="bg-zinc-950/40 border border-white/10 rounded-2xl p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Status</p>
-          <p className="text-zinc-300 text-sm leading-relaxed">
-            Tempo real: clique na aba e aperte "Atualizar agora".
-          </p>
-        </div>
-      </div>
+
 
       <div className="mt-3">
         <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Notas</label>

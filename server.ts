@@ -676,7 +676,8 @@ Retorne no schema solicitado.
 
       const prompt = `Busque na internet as cotações atuais (de hoje ou desta semana) do mercado agropecuário. 
 Preciso dos valores em Reais (R$) para o Rio Grande do Sul (NESUI/UFRGS) e média CEPEA.
-Se o preço for por Kg, coloque; se for por Arroba, coloque. Se não achar, coloque 'N/D'.
+Para a UFRGS/NESUI, se o preço for por Kg, coloque; se for por Arroba, coloque. 
+Para a CEPEA, é OBRIGATÓRIO retornar o valor em Reais (R$) por Kg (Quilograma). Se a fonte original fornecer em arroba (@), você DEVE converter para Kg dividindo por 15. Se não achar, coloque 'N/D'.
 
 Formato JSON obrigatório (retorne APENAS o JSON, sem marcações markdown ou texto extra):
 {
