@@ -1,4 +1,4 @@
-oiimport React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
@@ -3469,13 +3469,18 @@ function WeatherAlertsView({ user }: { user: User }) {
     try {
       let cityName = '';
       try {
-        const geoRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=pt`);
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json&language=pt`);
         if (geoRes.ok) {
           const geoData = await geoRes.json();
-          if (geoData.city && geoData.principalSubdivision) {
-            cityName = `${geoData.city}, ${geoData.principalSubdivision}`;
-          } else if (geoData.locality) {
-            cityName = geoData.locality;
+          const address = geoData.address || {};
+          const city = address.city || address.town || address.municipality || '';
+          const state = address.state || '';
+          if (city && state) {
+            cityName = `${city}, ${state}`;
+          } else if (city) {
+            cityName = city;
+          } else if (geoData.name) {
+            cityName = geoData.name;
           }
         }
       } catch (e) {
@@ -3542,8 +3547,7 @@ function WeatherAlertsView({ user }: { user: User }) {
     // When the tab is opened (component mounts), load "tempo real" using last location if available.
     if (!location) return;
     void fetchWeatherNow(location);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location]);
 
   const formatNumber = (v?: number, digits = 0): string => {
     if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/d';
