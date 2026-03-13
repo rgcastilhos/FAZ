@@ -674,21 +674,37 @@ Retorne no schema solicitado.
         return;
       }
 
-      const prompt = `Busque na internet as cotações ATUAIS de reposição da Scot Consultoria para o estado do Rio Grande do Sul (RS).
-Link de referência: https://www.scotconsultoria.com.br/cotacoes/reposicao/?ref=smn
+      const prompt = `Busque na internet as cotações ATUAIS para o mercado de gado no Rio Grande do Sul (RS).
+Desejo obter dois conjuntos de dados específicos:
 
-Extraia os valores em Reais (R$) para as seguintes categorias no RIO GRANDE DO SUL (RS):
-1. Boi Magro
-2. Garrote
-3. Bezerro
-4. Desmama
-5. Vaca Boiadeira ou Vaca Magra
+1. Cotações da UFRGS (CEPEA/RS) para o Rio Grande do Sul:
+   - Boi Gordo (R$/kg vivo)
+   - Vaca Gorda (R$/kg vivo)
+   - Novilha (R$/kg vivo)
+   - Terneiro (R$/kg vivo)
+   - Terneira (R$/kg vivo)
 
-Para cada categoria, forneça o valor por CABEÇA (R$/cab) e por KG (R$/kg) se disponível.
-Se não encontrar especificamente para RS no link, busque a média nacional ou de estados próximos, mas priorize RS.
+2. Cotações de Reposição da Scot Consultoria para o Rio Grande do Sul:
+   Link de referência: https://www.scotconsultoria.com.br/cotacoes/reposicao/?ref=smn
+   Extraia os valores em Reais (R$) para:
+   - Boi Magro
+   - Garrote
+   - Bezerro
+   - Desmama
+   - Vaca Boiadeira ou Vaca Magra
+   (Para cada uma da Scot, forneça o valor por CABEÇA e por KG se disponível)
+
+Priorize sempre dados específicos do RS. Se não houver dados da Scot para RS, use a média nacional ou estados vizinhos, mas identifique se for o caso.
 
 Formato JSON obrigatório (retorne APENAS o JSON, sem marcações markdown ou texto extra):
 {
+  "ufrgs": {
+    "boi_gordo": "",
+    "vaca_gorda": "",
+    "novilha": "",
+    "terneiro": "",
+    "terneira": ""
+  },
   "scot_rs": {
     "boi_magro": { "cabeca": "", "kg": "" },
     "garrote": { "cabeca": "", "kg": "" },

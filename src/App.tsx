@@ -3216,7 +3216,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
               : 'text-zinc-500 hover:text-zinc-300'
           }`}
         >
-          <DollarSign className="w-3.5 h-3.5" /> Scot Consultoria
+          <DollarSign className="w-3.5 h-3.5" /> Mercado RS
         </button>
         <button
           onClick={() => setActiveTab('weather_alerts')}
@@ -3255,11 +3255,18 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
 }
 
 function CattleQuotesView({ user }: { user: User }) {
-  const storageKey = `${user.username}_mercado_rs_v3`;
+  const storageKey = `${user.username}_mercado_rs_v4`;
   const [payload, setPayload] = useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return {
+        ufrgs: {
+          boi_gordo: '',
+          vaca_gorda: '',
+          novilha: '',
+          terneiro: '',
+          terneira: ''
+        },
         scot_rs: {
           boi_magro: { cabeca: '', kg: '' },
           garrote: { cabeca: '', kg: '' },
@@ -3273,6 +3280,13 @@ function CattleQuotesView({ user }: { user: User }) {
       return JSON.parse(raw);
     } catch {
       return {
+        ufrgs: {
+          boi_gordo: '',
+          vaca_gorda: '',
+          novilha: '',
+          terneiro: '',
+          terneira: ''
+        },
         scot_rs: {
           boi_magro: { cabeca: '', kg: '' },
           garrote: { cabeca: '', kg: '' },
@@ -3309,6 +3323,13 @@ function CattleQuotesView({ user }: { user: User }) {
       
       if (data?.data) {
         setPayload({
+          ufrgs: data.data.ufrgs || {
+            boi_gordo: '',
+            vaca_gorda: '',
+            novilha: '',
+            terneiro: '',
+            terneira: ''
+          },
           scot_rs: data.data.scot_rs || {
             boi_magro: { cabeca: '', kg: '' },
             garrote: { cabeca: '', kg: '' },
@@ -3321,7 +3342,7 @@ function CattleQuotesView({ user }: { user: User }) {
         });
       }
     } catch (e: any) {
-      setError(e.message || "Erro de conexão com a Scot Consultoria.");
+      setError(e.message || "Erro de conexão com o Mercado RS.");
     } finally {
       setIsFetching(false);
     }
@@ -3346,6 +3367,47 @@ function CattleQuotesView({ user }: { user: User }) {
           inputMode="decimal"
           placeholder="0,00"
           className="w-full bg-zinc-950/60 border border-white/10 rounded-xl pl-12 pr-3 py-2 text-xs font-bold text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-[#5a5a40]/40 transition-all text-right"       
+        />
+      </div>
+    </div>
+  );
+
+  const UfrgsSection = () => (
+    <div className="bg-zinc-900/40 p-4 rounded-[1.5rem] border border-white/5 mb-6">
+      <h3 className="text-xs font-bold text-zinc-200 mb-3 flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>    
+        UFRGS (CEPEA/RS)
+      </h3>
+      <div className="flex flex-col">
+        <InputRow 
+          label="Boi Gordo" 
+          unit="R$/kg"
+          value={payload.ufrgs?.boi_gordo || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, boi_gordo: v } }))} 
+        />
+        <InputRow 
+          label="Vaca Gorda" 
+          unit="R$/kg"
+          value={payload.ufrgs?.vaca_gorda || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, vaca_gorda: v } }))} 
+        />
+        <InputRow 
+          label="Novilha" 
+          unit="R$/kg"
+          value={payload.ufrgs?.novilha || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, novilha: v } }))} 
+        />
+        <InputRow 
+          label="Terneiro" 
+          unit="R$/kg"
+          value={payload.ufrgs?.terneiro || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, terneiro: v } }))} 
+        />
+        <InputRow 
+          label="Terneira" 
+          unit="R$/kg"
+          value={payload.ufrgs?.terneira || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, terneira: v } }))} 
         />
       </div>
     </div>
@@ -3378,13 +3440,13 @@ function CattleQuotesView({ user }: { user: User }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <DollarSign className="w-5 h-5 text-[#d2b48c]" />
-          <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Scot Consultoria (Reposição RS)</h2>
+          <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Mercado RS</h2>
         </div>
         <button 
           onClick={handleFetchMarket}
           disabled={isFetching}
           className="bg-[#5a5a40]/20 hover:bg-[#5a5a40]/40 text-[#d2b48c] p-2.5 rounded-xl transition-all disabled:opacity-50"
-          title="Buscar Cotações Scot Consultoria"
+          title="Buscar Cotações Mercado RS"
         >
           {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
         </button>
@@ -3402,12 +3464,18 @@ function CattleQuotesView({ user }: { user: User }) {
             Atualizado em: {new Date(payload.lastFetchedMs || Date.now()).toLocaleString()}
           </p>
           <p className="text-[9px] text-[#d2b48c] uppercase tracking-widest font-black">
-            Referência Scot: {payload.lastUpdated}
+            Referência: {payload.lastUpdated}
           </p>
         </div>
       )}
 
       <div className="space-y-4">
+        <UfrgsSection />
+        
+        <div className="pt-2 pb-1 border-b border-white/10">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d2b48c]/60">Reposição Scot Consultoria</h3>
+        </div>
+
         <ScotSection title="Boi Magro" category="boi_magro" data={payload.scot_rs?.boi_magro} colorClass="bg-[#d2b48c]" />
         <ScotSection title="Garrote" category="garrote" data={payload.scot_rs?.garrote} colorClass="bg-blue-400" />
         <ScotSection title="Bezerro" category="bezerro" data={payload.scot_rs?.bezerro} colorClass="bg-emerald-500" />
@@ -3417,7 +3485,7 @@ function CattleQuotesView({ user }: { user: User }) {
 
       <div className="mt-6 p-3 bg-zinc-950/40 rounded-xl border border-white/5">
         <p className="text-[8px] text-zinc-500 italic text-center">
-          Fonte: Scot Consultoria (Cotações de Reposição - Rio Grande do Sul)
+          Fontes: UFRGS (CEPEA/RS) e Scot Consultoria (Reposição RS)
         </p>
       </div>
     </div>
