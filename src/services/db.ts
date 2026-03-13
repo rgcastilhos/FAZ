@@ -34,17 +34,41 @@ export interface GalleryItem {
   username?: string;
 }
 
+export interface Piquete {
+  id?: number;
+  nome: string;
+  especieCapim: string;
+  areaHa: number;
+  dataSaidaGado?: Date;
+  dataIdealRetorno?: Date;
+  status: 'descanso' | 'pronto' | 'ocupado';
+  username?: string;
+}
+
+export interface RegistroManejo {
+  id?: number;
+  piqueteId: number;
+  data: Date;
+  alturaCm: number;
+  tipo: 'entrada' | 'saida' | 'medicao';
+  username?: string;
+}
+
 export class MeuBanco extends Dexie {
   pesagens!: Table<Pesagem>;
   training_data!: Table<TrainingData>;
   images!: Table<GalleryItem>;
+  piquetes!: Table<Piquete>;
+  manejo_pasto!: Table<RegistroManejo>;
 
   constructor() {
     super('SistemaPecuario');
-    this.version(1).stores({
+    this.version(2).stores({
       pesagens: '++id, data, animal, username',
       training_data: '++id, createdAt, username',
-      images: '++id, createdAt, username'
+      images: '++id, createdAt, username',
+      piquetes: '++id, nome, username',
+      manejo_pasto: '++id, piqueteId, data, username'
     });
   }
 }

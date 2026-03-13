@@ -12,7 +12,7 @@ import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './
 import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image, cropBase64Image } from './utils/formatters';
 import { TFLiteService } from './services/tflite';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { UpdateButton } from './components/UpdateButton';
+import { ManejoPastoView } from './components/ManejoPasto';
 import YOLOPreview from './components/YOLOPreview';
 
 const FARM_ICON_MAP: Record<string, React.ReactNode> = {
@@ -3281,7 +3281,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
 
 function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { user: User, onLogout: () => void, onUpdateUser: (user: User) => void, onManualSync: () => void, isSyncing: boolean, key?: string }) {
   const [activeTab, setActiveTab] = useState<
-    'camera' | 'users' | 'farm' | 'training' | 'fattening' | 'dr_pasto' | 'cattle_quotes' | 'weather_alerts'
+    'camera' | 'users' | 'farm' | 'training' | 'fattening' | 'manejo_pasto' | 'dr_pasto' | 'cattle_quotes' | 'weather_alerts'
   >('camera');
   const storagePrefix = `${user.username}_`;
   const isAdmin = user.role === 'admin';
@@ -3424,6 +3424,16 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
           <Pencil className="w-3.5 h-3.5" /> Treinar {!isAdmin && <Lock className="w-3 h-3 opacity-70" />}
         </button>
         <button
+          onClick={() => setActiveTab('manejo_pasto')}
+          className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'manejo_pasto'
+              ? 'bg-[#5a5a40] text-[#f5f2ed] shadow-xl shadow-[#5a5a40]/30'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <Map className="w-3.5 h-3.5" /> Manejo
+        </button>
+        <button
           onClick={() => setActiveTab('dr_pasto')}
           className={`px-3 py-2.5 text-[9px] font-black uppercase tracking-[0.15em] rounded-[1.5rem] flex items-center justify-center gap-1.5 transition-all ${
             activeTab === 'dr_pasto'
@@ -3465,6 +3475,8 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
           isAdmin ? <UserManagementView /> : <RestrictedTabView tabName="Usuários" />
         ) : activeTab === 'training' ? (
           isAdmin ? <TrainingView user={user} /> : <RestrictedTabView tabName="Treinar" />
+        ) : activeTab === 'manejo_pasto' ? (
+          <ManejoPastoView user={user} />
         ) : activeTab === 'dr_pasto' ? (
           <DrPastoView user={user} />
         ) : activeTab === 'cattle_quotes' ? (
