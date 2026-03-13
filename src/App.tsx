@@ -3,6 +3,7 @@ import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamer
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import * as tf from '@tensorflow/tfjs';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
 
 // Import types and utilities
@@ -838,6 +839,38 @@ function CameraView({ user }: { user: User | null }) {
     stopCamera();
   };
 
+  const processImageWithYOLO = async (imageElement: HTMLImageElement) => {
+    try {
+      // 1. Carrega o modelo YOLO (Coloque os arquivos em public/models/yolo_web)
+      const model = await tf.loadGraphModel('/models/yolo_web/model.json');
+      
+      // 2. Pré-processamento da imagem para o formato YOLO (640x640)
+      const input = tf.tidy(() => {
+        return tf.browser.fromPixels(imageElement)
+          .resizeNearestNeighbor([640, 640])
+          .div(255.0)
+          .expandDims(0);
+      });
+
+      // 3. Executa a inferência
+      const result = await model.executeAsync(input);
+      
+      // Cleanup
+      input.dispose();
+      if (Array.isArray(result)) {
+        result.forEach(t => t.dispose());
+      } else {
+        result.dispose();
+      }
+      
+      console.log("[YOLO] Processamento concluído.");
+      return result;
+    } catch (e) {
+      console.error("[YOLO] Erro ao processar imagem:", e);
+      return null;
+    }
+  };
+
   const estimateWeight = async () => {
     if (estimationMode === 'camera' && capturedImages.length === 0) return;
     if (estimationMode === 'manual' && (!manualData.heartGirth || !manualData.bodyLength)) {
@@ -850,6 +883,19 @@ function CameraView({ user }: { user: User | null }) {
     setWeightAnalysis(null);
     
     try {
+      // Tentar processar com YOLO se houver imagens
+      if (estimationMode === 'camera' && capturedImages.length > 0) {
+        console.log("[YOLO] Iniciando pré-processamento...");
+        try {
+          const img = new Image();
+          img.src = capturedImages[0];
+          await new Promise((resolve) => { img.onload = resolve; });
+          await processImageWithYOLO(img);
+        } catch (yoloErr) {
+          console.warn("[YOLO] Falha na detecção, prosseguindo com fluxo normal:", yoloErr);
+        }
+      }
+
       // Buscar dados de treinamento para melhorar a precisão (Few-shot prompting)
       const trainingData = await getTrainingData(user?.username);
       const recentTraining = trainingData.slice(-5); // Pegar os 5 mais recentes

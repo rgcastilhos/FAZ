@@ -30,3 +30,27 @@
     "NEW INSTRUCTION": "WHEN showing the Scot quotes section THEN label the section as 'SEPEA'"
 }
 
+[2026-03-13 04:05] - Updated by Junie
+{
+    "TYPE": "preference",
+    "CATEGORY": "Processing mode",
+    "EXPECTATION": "Use only cloud-based weight estimation across the app until the user confirms TFLite is ready.",
+    "NEW INSTRUCTION": "WHEN estimating weight AND TFLite not explicitly approved THEN route all requests to cloud service"
+}
+
+[2026-03-13 04:22] - Updated by Junie
+{
+    "TYPE": "positive",
+    "CATEGORY": "Deployment confirmation",
+    "EXPECTATION": "User is satisfied that the changes were pushed to GitHub and the success was explicitly confirmed.",
+    "NEW INSTRUCTION": "WHEN pushing changes to GitHub THEN state success clearly and note Render auto-deploy"
+}
+
+[2026-03-13 04:22] - Updated by Junie
+{
+    "TYPE": "positive",
+    "CATEGORY": "Verification success",
+    "EXPECTATION": "User confirms the TFLite export script was created and structurally validated.",
+    "NEW INSTRUCTION": "WHEN creating or updating ML scripts THEN add a 'Verification' confirming file creation and validation"
+}
+
