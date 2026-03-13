@@ -36,6 +36,11 @@ interface GalleryDB extends DBSchema {
       imageData?: string;
       createdAt: number;
       username?: string;
+      yoloDetection?: {
+        box: number[];
+        score: number;
+        class: string;
+      };
     };
     indexes: { 'by-date': number, 'by-user': string };
   };

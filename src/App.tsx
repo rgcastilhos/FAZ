@@ -894,7 +894,7 @@ function CameraView({ user }: { user: User | null }) {
         tf.tensor1d(rawScores),
         5, // Máximo de 5 animais detectados
         0.5, // IOU Threshold
-        0.45 // Score Threshold
+        0.60 // Score Threshold aumentado para reduzir falsos positivos
       );
 
       const indices = await selectedIndices.array();
@@ -1089,14 +1089,15 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
             );
             setCapturedImages(resizedImages);
             
-            // Save to history com imagem já reduzida
+            // Save to history com imagem já reduzida e dados YOLO se existirem
             await addHistory({
               type: estimationMode,
               animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
               breed: data.raca || manualData.breed || 'N/A',
               weight: pesoFinal,
               resultText: formattedResult,
-              imageData: resizedImages[0]
+              imageData: resizedImages[0],
+              yoloDetection: yoloDetection || undefined
             }, user?.username);
           } catch (resizeErr) {
             console.error("Erro ao redimensionar imagens após pesagem:", resizeErr);
@@ -1107,7 +1108,8 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
               breed: data.raca || manualData.breed || 'N/A',
               weight: pesoFinal,
               resultText: formattedResult,
-              imageData: capturedImages[0]
+              imageData: capturedImages[0],
+              yoloDetection: yoloDetection || undefined
             }, user?.username);
           }
         } else {
