@@ -674,15 +674,29 @@ Retorne no schema solicitado.
         return;
       }
 
-      const prompt = `Busque na internet as cotações atuais (de hoje ou desta semana) do mercado agropecuário. 
-Preciso dos valores em Reais (R$) para o Rio Grande do Sul (NESUI/UFRGS) e média CEPEA.
-Para a UFRGS/NESUI, se o preço for por Kg, coloque; se for por Arroba, coloque. 
-Para a CEPEA, é OBRIGATÓRIO retornar o valor em Reais (R$) por Kg (Quilograma). Se a fonte original fornecer em arroba (@), você DEVE converter para Kg dividindo por 15. Se não achar, coloque 'N/D'.
+      const prompt = `Busque na internet as cotações ATUAIS de reposição da Scot Consultoria para o estado do Rio Grande do Sul (RS).
+Link de referência: https://www.scotconsultoria.com.br/cotacoes/reposicao/?ref=smn
+
+Extraia os valores em Reais (R$) para as seguintes categorias no RIO GRANDE DO SUL (RS):
+1. Boi Magro
+2. Garrote
+3. Bezerro
+4. Desmama
+5. Vaca Boiadeira ou Vaca Magra
+
+Para cada categoria, forneça o valor por CABEÇA (R$/cab) e por KG (R$/kg) se disponível.
+Se não encontrar especificamente para RS no link, busque a média nacional ou de estados próximos, mas priorize RS.
 
 Formato JSON obrigatório (retorne APENAS o JSON, sem marcações markdown ou texto extra):
 {
-  "ufrgs": { "boi": "", "vaca": "", "novilho": "", "terneiro": "", "terneira": "" },
-  "cepea": { "boi": "", "vaca": "", "novilho": "", "terneiro": "", "terneira": "" }
+  "scot_rs": {
+    "boi_magro": { "cabeca": "", "kg": "" },
+    "garrote": { "cabeca": "", "kg": "" },
+    "bezerro": { "cabeca": "", "kg": "" },
+    "desmama": { "cabeca": "", "kg": "" },
+    "vaca": { "cabeca": "", "kg": "" }
+  },
+  "last_updated": "DD/MM/AAAA"
 }`;
 
       const response = await generateContentWithRetry(
@@ -701,7 +715,7 @@ Formato JSON obrigatório (retorne APENAS o JSON, sem marcações markdown ou te
       const data = JSON.parse(text);
       res.json({ data, fetchedAt: Date.now() });
     } catch (error: any) {
-      sendAiError(res, error, "Falha ao buscar cotações do mercado.");
+      sendAiError(res, error, "Falha ao buscar cotações da Scot Consultoria.");
     }
   });
 

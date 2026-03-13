@@ -8,7 +8,7 @@ import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addT
 // Import types and utilities
 import type { User, GalleryItem, InventoryItem, Category, CardOptions, AppSettings, MapGroundingLink, WeatherData, TrainingData } from './types';
 import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './constants';
-import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId } from './utils/formatters';
+import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image } from './utils/formatters';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UpdateButton } from './components/UpdateButton';
 
@@ -747,8 +747,26 @@ function CameraView({ user }: { user: User | null }) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Calculate scaled dimensions to avoid freezing with 4K camera outputs
+      const MAX_WIDTH = 1024;
+      const MAX_HEIGHT = 1024;
+      let width = video.videoWidth;
+      let height = video.videoHeight;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width = Math.round((width * MAX_HEIGHT) / height);
+          height = MAX_HEIGHT;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
       
       const context = canvas.getContext('2d');
       if (context) {
@@ -758,7 +776,7 @@ function CameraView({ user }: { user: User | null }) {
         }
         
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.7); // 70% quality for performance
         setCapturedImages(prev => [...prev, imageDataUrl]);
         
         try {
@@ -774,24 +792,19 @@ function CameraView({ user }: { user: User | null }) {
     }
   };
 
-  const handleFilesUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilesUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      Array.from(files).forEach((file: File) => {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const result = reader.result as string;
+      for (const file of Array.from(files)) {
+        try {
+          const result = await resizeImageFile(file);
           setCapturedImages(prev => [...prev, result]);
-          
-          try {
-            await addImageToDB(result, user?.username);
-            await loadGallery();
-          } catch (e) {
-            console.error("Failed to save to DB", e);
-          }
-        };
-        reader.readAsDataURL(file as Blob);
-      });
+          await addImageToDB(result, user?.username);
+          await loadGallery();
+        } catch (e) {
+          console.error("Failed to save to DB", e);
+        }
+      }
       stopCamera();
     }
   };
@@ -916,16 +929,48 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
         `.trim();
 
         setWeightAnalysis(formattedResult);
+        
+        // Redimensionar fotos capturadas para economizar espaço e impossibilitar visualização detalhada
+        if (estimationMode === 'camera' && capturedImages.length > 0) {
+          try {
+            const resizedImages = await Promise.all(
+              capturedImages.map(img => resizeBase64Image(img, 100, 100, 0.4))
+            );
+            setCapturedImages(resizedImages);
+            
+            // Save to history com imagem já reduzida
+            await addHistory({
+              type: estimationMode,
+              animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
+              breed: data.raca || manualData.breed || 'N/A',
+              weight: pesoFinal,
+              resultText: formattedResult,
+              imageData: resizedImages[0]
+            }, user?.username);
+          } catch (resizeErr) {
+            console.error("Erro ao redimensionar imagens após pesagem:", resizeErr);
+            // Fallback: salva com imagem original se falhar
+            await addHistory({
+              type: estimationMode,
+              animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
+              breed: data.raca || manualData.breed || 'N/A',
+              weight: pesoFinal,
+              resultText: formattedResult,
+              imageData: capturedImages[0]
+            }, user?.username);
+          }
+        } else {
+          // No manual mode or no images
+          await addHistory({
+            type: estimationMode,
+            animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
+            breed: data.raca || manualData.breed || 'N/A',
+            weight: pesoFinal,
+            resultText: formattedResult,
+            imageData: undefined
+          }, user?.username);
+        }
 
-        // Save to history
-        await addHistory({
-          type: estimationMode,
-          animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
-          breed: data.raca || manualData.breed || 'N/A',
-          weight: pesoFinal,
-          resultText: formattedResult,
-          imageData: estimationMode === 'camera' && capturedImages.length > 0 ? capturedImages[0] : undefined
-        }, user?.username);
         loadHistory();
 
       } catch (parseError) {
@@ -1055,13 +1100,15 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
         {estimationMode === 'camera' ? (
           capturedImages.length > 0 ? (
             <>
-              <img 
-                src={capturedImages[capturedImages.length - 1]} 
-                alt="Captured" 
-                className="w-full h-full object-cover" 
-              />
+              <div className={`transition-all duration-700 ease-in-out ${weightAnalysis ? 'scale-[0.15] origin-bottom-right absolute bottom-6 right-6 z-20 opacity-40 grayscale pointer-events-none' : 'w-full h-full'}`}>
+                <img 
+                  src={capturedImages[capturedImages.length - 1]} 
+                  alt="Captured" 
+                  className={`object-cover ${weightAnalysis ? 'rounded-2xl border-4 border-white/20' : 'w-full h-full'}`} 
+                />
+              </div>
               
-              {capturedImages.length > 1 && (
+              {!weightAnalysis && capturedImages.length > 1 && (
                 <div className="absolute top-4 left-4 right-4 flex gap-2 overflow-x-auto pb-2 z-10 scrollbar-hide">
                   {capturedImages.map((img, idx) => (
                     <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border-2 border-white/20 flex-shrink-0 shadow-lg">
@@ -1079,7 +1126,7 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
               
               {/* AI Analysis Overlay */}
               {weightAnalysis && (
-                <div className="absolute inset-0 bg-black/80 backdrop-blur-md p-8 flex flex-col justify-center items-start overflow-y-auto">
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-md p-8 flex flex-col justify-center items-start overflow-y-auto z-10">
                   <h3 className="text-[#d2b48c] font-serif italic text-2xl font-bold mb-4 flex items-center gap-3">
                     <Scale className="w-6 h-6" /> Estimativa de IA
                   </h3>
@@ -1087,10 +1134,13 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
                     {weightAnalysis}
                   </p>
                   <button 
-                    onClick={() => setWeightAnalysis(null)}
+                    onClick={() => {
+                      setWeightAnalysis(null);
+                      resetImage(); // Limpa as fotos após fechar a análise para segurança
+                    }}
                     className="mt-8 px-6 py-3 bg-[#5a5a40] text-[#f5f2ed] rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#4a4a35] transition-all shadow-xl shadow-[#5a5a40]/20"
                   >
-                    Fechar Análise
+                    Nova Pesagem
                   </button>
                 </div>
               )}
@@ -1437,18 +1487,19 @@ function TrainingView({ user }: { user: User | null }) {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string);
+      try {
+        const resized = await resizeImageFile(file);
+        setSelectedImage(resized);
         setEstimation(null);
         setRealWeight('');
         setError(null);
         setSuccess(null);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -1931,6 +1982,8 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     }
   });
 
+  const [displayLimit, setDisplayLimit] = useState(10);
+
   const currentTheme = THEMES[(settings.theme as keyof typeof THEMES)] || THEMES.emerald;
   const cardOptions = { ...DEFAULT_CARD_OPTIONS, ...(settings.cardOptions || {}) };
 
@@ -1952,9 +2005,26 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
-  useEffect(() => localStorage.setItem(`${storagePrefix}agro_categories`, JSON.stringify(categories)), [categories, storagePrefix]);
-  useEffect(() => localStorage.setItem(`${storagePrefix}agro_items`, JSON.stringify(items)), [items, storagePrefix]);
-  useEffect(() => localStorage.setItem(`${storagePrefix}agro_settings`, JSON.stringify(settings)), [settings, storagePrefix]);
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      localStorage.setItem(`${storagePrefix}agro_categories`, JSON.stringify(categories));
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [categories, storagePrefix]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      localStorage.setItem(`${storagePrefix}agro_items`, JSON.stringify(items));
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [items, storagePrefix]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      localStorage.setItem(`${storagePrefix}agro_settings`, JSON.stringify(settings));
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [settings, storagePrefix]);
   useEffect(() => {
     if (localStorage.getItem(OPEN_FARM_SETTINGS_KEY) === '1') {
       localStorage.removeItem(OPEN_FARM_SETTINGS_KEY);
@@ -2005,7 +2075,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     }
   }, [userLocation, gettingLocation, fetchGeolocation]);
 
-  const handleAddItem = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddItem = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const photoFile = formData.get('photo') as File;
@@ -2024,13 +2094,16 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
       setIsAddingItem(false);
     };
     if (photoFile?.size > 0) {
-      const reader = new FileReader();
-      reader.onloadend = () => save(reader.result as string);
-      reader.readAsDataURL(photoFile);
+      try {
+        const result = await resizeImageFile(photoFile, 400, 400, 0.6);
+        save(result);
+      } catch {
+        save();
+      }
     } else save();
   };
 
-  const handleUpdateItem = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleUpdateItem = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingItem) return;
     const formData = new FormData(e.currentTarget);
@@ -2048,9 +2121,12 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     };
 
     if (photoFile?.size > 0) {
-      const reader = new FileReader();
-      reader.onloadend = () => save(reader.result as string);
-      reader.readAsDataURL(photoFile);
+      try {
+        const result = await resizeImageFile(photoFile, 400, 400, 0.6);
+        save(result);
+      } catch {
+        save();
+      }
     } else save();
   };
 
@@ -2095,12 +2171,15 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     setEditingCategory(null);
   };
 
-  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setSettings(prev => ({ ...prev, backgroundImage: reader.result as string }));
-      reader.readAsDataURL(file);
+      try {
+        const result = await resizeImageFile(file, 1920, 1080); // backgrounds can be a bit larger
+        setSettings(prev => ({ ...prev, backgroundImage: result }));
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -2122,15 +2201,15 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     }
   };
 
-  const handleLoginBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLoginBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
+      try {
+        const base64 = await resizeImageFile(file, 1920, 1080);
         setSettings(prev => ({ ...prev, loginBgImage: base64 }));
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -2309,7 +2388,10 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
               return (
                 <div key={cat.id || `cat-${index}`} className="group/cat relative">
                   <button
-                    onClick={() => setActiveCategoryId(cat.id)}
+                    onClick={() => {
+                      setActiveCategoryId(cat.id);
+                      setDisplayLimit(10);
+                    }}
                     className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all border ${
                       activeCategoryId === cat.id 
                       ? `${currentTheme.light} ${currentTheme.border} ${currentTheme.text} shadow-lg ${currentTheme.shadow}` 
@@ -2389,7 +2471,10 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
               return (
                 <button
                   key={cat.id || `m-cat-${index}`}
-                  onClick={() => setActiveCategoryId(cat.id)}
+                  onClick={() => {
+                    setActiveCategoryId(cat.id);
+                    setDisplayLimit(10);
+                  }}
                   className={`min-w-0 px-2 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.06em] transition-all border ${
                       activeCategoryId === cat.id 
                       ? 'bg-emerald-500 text-white border-emerald-400 shadow-lg shadow-emerald-500/25'
@@ -2505,78 +2590,88 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
               <p className="text-zinc-500 font-medium">Adicione itens clicando no botão acima</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {filteredItems.map((item, index) => (
-                <div 
-                  key={item.id || `item-${index}`} 
-                  className={`bg-zinc-900/55 border ${item.isSelectedForSum ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'} rounded-3xl overflow-hidden group transition-all duration-300 hover:-translate-y-0.5 hover:border-zinc-700`}
-                >
-                  {cardOptions.showPhoto && item.photo && (
-                    <div className="h-32 bg-zinc-950 relative overflow-hidden">
-                      <img 
-                        src={item.photo} 
-                        alt={item.name} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer" 
-                        onClick={() => { setSelectedImageUrl(item.photo!); setIsImageModalOpen(true); }}
-                      />
-                    </div>
-                  )}
-                  <div className="p-3.5">
-                    <div className="flex justify-between items-start mb-3">
-                      <h4 className="text-sm font-bold text-zinc-100 truncate pr-2 leading-tight">{item.name}</h4>
-                      {cardOptions.showCheckbox && (
-                        <input 
-                          type="checkbox" 
-                          checked={item.isSelectedForSum !== false}
-                          onChange={() =>
-                            setItems(prev =>
-                              prev.map(i =>
-                                i.id === item.id ? { ...i, isSelectedForSum: i.isSelectedForSum === false } : i
-                              )
-                            )
-                          }
-                          className={`w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 ${currentTheme.text} focus:ring-emerald-500/20`}
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {filteredItems.slice(0, displayLimit).map((item, index) => (
+                  <div 
+                    key={item.id || `item-${index}`} 
+                    className={`bg-zinc-900/55 border ${item.isSelectedForSum ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'} rounded-3xl overflow-hidden group transition-all duration-300 hover:-translate-y-0.5 hover:border-zinc-700`}
+                  >
+                    {cardOptions.showPhoto && item.photo && (
+                      <div className="h-32 bg-zinc-950 relative overflow-hidden">
+                        <img 
+                          src={item.photo} 
+                          alt={item.name} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer" 
+                          onClick={() => { setSelectedImageUrl(item.photo!); setIsImageModalOpen(true); }}
                         />
-                      )}
-                    </div>
-                    <div className="flex items-end justify-between">
-                      <div>
-                        <p className="text-[11px] text-zinc-500 font-bold uppercase tracking-wide mb-1">Quantidade</p>
-                        <p className={`text-2xl font-black ${currentTheme.text} leading-none`}>{item.quantity}</p>
-                        {item.tickProtocolDays && (
-                          <div className="flex items-center gap-1.5 mt-2.5 bg-red-500/10 px-2 py-1 rounded-lg border border-red-500/20 w-fit">
-                            <AlertTriangle className="w-3 h-3 text-red-400" />
-                            <span className="text-[10px] font-bold text-red-400">Alerta: {item.tickProtocolDays} dias</span>
-                          </div>
+                      </div>
+                    )}
+                    <div className="p-3.5">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="text-sm font-bold text-zinc-100 truncate pr-2 leading-tight">{item.name}</h4>
+                        {cardOptions.showCheckbox && (
+                          <input 
+                            type="checkbox" 
+                            checked={item.isSelectedForSum !== false}
+                            onChange={() =>
+                              setItems(prev =>
+                                prev.map(i =>
+                                  i.id === item.id ? { ...i, isSelectedForSum: i.isSelectedForSum === false } : i
+                                )
+                              )
+                            }
+                            className={`w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 ${currentTheme.text} focus:ring-emerald-500/20`}
+                          />
                         )}
                       </div>
-                      <div className="flex gap-1.5">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingItem(item);
-                          }}
-                          className="p-2 rounded-lg bg-zinc-800/50 text-zinc-400 hover:text-blue-300 hover:bg-zinc-700 transition-colors"
-                          title="Editar item"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteItem(item.id);
-                          }}
-                          className="p-2 rounded-lg bg-zinc-800/50 text-zinc-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                          title="Excluir item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="flex items-end justify-between">
+                        <div>
+                          <p className="text-[11px] text-zinc-500 font-bold uppercase tracking-wide mb-1">Quantidade</p>
+                          <p className={`text-2xl font-black ${currentTheme.text} leading-none`}>{item.quantity}</p>
+                          {item.tickProtocolDays && (
+                            <div className="flex items-center gap-1.5 mt-2.5 bg-red-500/10 px-2 py-1 rounded-lg border border-red-500/20 w-fit">
+                              <AlertTriangle className="w-3 h-3 text-red-400" />
+                              <span className="text-[10px] font-bold text-red-400">Alerta: {item.tickProtocolDays} dias</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingItem(item);
+                            }}
+                            className="p-2 rounded-lg bg-zinc-800/50 text-zinc-400 hover:text-blue-300 hover:bg-zinc-700 transition-colors"
+                            title="Editar item"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteItem(item.id);
+                            }}
+                            className="p-2 rounded-lg bg-zinc-800/50 text-zinc-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                            title="Excluir item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+              {filteredItems.length > displayLimit && (
+                <button
+                  onClick={() => setDisplayLimit(prev => prev + 10)}
+                  className="w-full mt-4 py-4 border-2 border-dashed border-zinc-800 rounded-[2rem] text-zinc-500 font-bold uppercase text-[10px] tracking-widest hover:border-zinc-700 hover:text-zinc-400 transition-all"
+                >
+                  Carregar mais registros (+10 de {filteredItems.length})
+                </button>
+              )}
+            </>
           )}
         </main>
       </div>
@@ -3121,7 +3216,7 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
               : 'text-zinc-500 hover:text-zinc-300'
           }`}
         >
-          <DollarSign className="w-3.5 h-3.5" /> Mercado RS
+          <DollarSign className="w-3.5 h-3.5" /> Scot Consultoria
         </button>
         <button
           onClick={() => setActiveTab('weather_alerts')}
@@ -3160,21 +3255,31 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
 }
 
 function CattleQuotesView({ user }: { user: User }) {
-  const storageKey = `${user.username}_mercado_rs_v2`;
+  const storageKey = `${user.username}_mercado_rs_v3`;
   const [payload, setPayload] = useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return {
-        ufrgs: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
-        cepea: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
+        scot_rs: {
+          boi_magro: { cabeca: '', kg: '' },
+          garrote: { cabeca: '', kg: '' },
+          bezerro: { cabeca: '', kg: '' },
+          desmama: { cabeca: '', kg: '' },
+          vaca: { cabeca: '', kg: '' }
+        },
         lastUpdated: '',
         lastFetchedMs: 0
       };
       return JSON.parse(raw);
     } catch {
       return {
-        ufrgs: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
-        cepea: { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' }, 
+        scot_rs: {
+          boi_magro: { cabeca: '', kg: '' },
+          garrote: { cabeca: '', kg: '' },
+          bezerro: { cabeca: '', kg: '' },
+          desmama: { cabeca: '', kg: '' },
+          vaca: { cabeca: '', kg: '' }
+        },
         lastUpdated: '',
         lastFetchedMs: 0
       };
@@ -3204,14 +3309,19 @@ function CattleQuotesView({ user }: { user: User }) {
       
       if (data?.data) {
         setPayload({
-          ufrgs: data.data.ufrgs || { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' },
-          cepea: data.data.cepea || { boi: '', vaca: '', novilho: '', terneiro: '', terneira: '' },
-          lastUpdated: new Date().toLocaleDateString(),
+          scot_rs: data.data.scot_rs || {
+            boi_magro: { cabeca: '', kg: '' },
+            garrote: { cabeca: '', kg: '' },
+            bezerro: { cabeca: '', kg: '' },
+            desmama: { cabeca: '', kg: '' },
+            vaca: { cabeca: '', kg: '' }
+          },
+          lastUpdated: data.data.last_updated || new Date().toLocaleDateString(),
           lastFetchedMs: Date.now()
         });
       }
     } catch (e: any) {
-      setError(e.message || "Erro de conexão com o Mercado.");
+      setError(e.message || "Erro de conexão com a Scot Consultoria.");
     } finally {
       setIsFetching(false);
     }
@@ -3225,17 +3335,39 @@ function CattleQuotesView({ user }: { user: User }) {
     }
   }, [payload.lastUpdated]);
 
-  const InputRow = ({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) => (
+  const InputRow = ({ label, value, onChange, unit = "R$/cab" }: { label: string, value: string, onChange: (v: string) => void, unit?: string }) => (
     <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
       <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">{label}</span>
       <div className="relative w-32">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold text-[10px]">R$</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold text-[8px]">{unit}</span>
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           inputMode="decimal"
           placeholder="0,00"
-          className="w-full bg-zinc-950/60 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs font-bold text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-[#5a5a40]/40 transition-all text-right"       
+          className="w-full bg-zinc-950/60 border border-white/10 rounded-xl pl-12 pr-3 py-2 text-xs font-bold text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-[#5a5a40]/40 transition-all text-right"       
+        />
+      </div>
+    </div>
+  );
+
+  const ScotSection = ({ title, category, data, colorClass }: { title: string, category: string, data: any, colorClass: string }) => (
+    <div className="bg-zinc-900/40 p-4 rounded-[1.5rem] border border-white/5">
+      <h3 className="text-xs font-bold text-zinc-200 mb-3 flex items-center gap-2">
+        <span className={`w-1.5 h-1.5 rounded-full ${colorClass}`}></span>    
+        {title}
+      </h3>
+      <div className="flex flex-col">
+        <InputRow 
+          label="Preço por Cabeça" 
+          value={data?.cabeca || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, scot_rs: { ...p.scot_rs, [category]: { ...p.scot_rs[category], cabeca: v } } }))} 
+        />
+        <InputRow 
+          label="Preço por Kg" 
+          unit="R$/kg"
+          value={data?.kg || ''} 
+          onChange={(v) => setPayload((p: any) => ({ ...p, scot_rs: { ...p.scot_rs, [category]: { ...p.scot_rs[category], kg: v } } }))} 
         />
       </div>
     </div>
@@ -3246,13 +3378,13 @@ function CattleQuotesView({ user }: { user: User }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <DollarSign className="w-5 h-5 text-[#d2b48c]" />
-          <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Mercado RS</h2>
+          <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#d2b48c]">Scot Consultoria (Reposição RS)</h2>
         </div>
         <button 
           onClick={handleFetchMarket}
           disabled={isFetching}
           className="bg-[#5a5a40]/20 hover:bg-[#5a5a40]/40 text-[#d2b48c] p-2.5 rounded-xl transition-all disabled:opacity-50"
-          title="Buscar Cotações Atualizadas"
+          title="Buscar Cotações Scot Consultoria"
         >
           {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
         </button>
@@ -3265,39 +3397,28 @@ function CattleQuotesView({ user }: { user: User }) {
       )}
 
       {payload.lastUpdated && (
-        <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black mb-4">
-          Atualizado em: {new Date(payload.lastFetchedMs || Date.now()).toLocaleString()}
-        </p>
+        <div className="flex justify-between items-center mb-4">
+          <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">
+            Atualizado em: {new Date(payload.lastFetchedMs || Date.now()).toLocaleString()}
+          </p>
+          <p className="text-[9px] text-[#d2b48c] uppercase tracking-widest font-black">
+            Referência Scot: {payload.lastUpdated}
+          </p>
+        </div>
       )}
 
-      <div className="space-y-6">
-        <div className="bg-zinc-900/40 p-4 rounded-[1.5rem] border border-white/5">
-          <h3 className="text-xs font-bold text-zinc-200 mb-3 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#d2b48c]"></span>    
-            Preço UFRGS/NESUI (Média Estadual)
-          </h3>
-          <div className="flex flex-col">
-            <InputRow label="Boi Gordo (R$/Kg)" value={payload.ufrgs?.boi || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, boi: v } }))} />
-            <InputRow label="Vaca Gorda (R$/Kg)" value={payload.ufrgs?.vaca || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, vaca: v } }))} />
-            <InputRow label="Novilho/Novilha (R$/Kg)" value={payload.ufrgs?.novilho || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, novilho: v } }))} />
-            <InputRow label="Terneira (R$/Kg)" value={payload.ufrgs?.terneira || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, terneira: v } }))} />
-            <InputRow label="Terneiro (R$/Kg)" value={payload.ufrgs?.terneiro || ''} onChange={(v) => setPayload((p: any) => ({ ...p, ufrgs: { ...p.ufrgs, terneiro: v } }))} />
-          </div>
-        </div>
+      <div className="space-y-4">
+        <ScotSection title="Boi Magro" category="boi_magro" data={payload.scot_rs?.boi_magro} colorClass="bg-[#d2b48c]" />
+        <ScotSection title="Garrote" category="garrote" data={payload.scot_rs?.garrote} colorClass="bg-blue-400" />
+        <ScotSection title="Bezerro" category="bezerro" data={payload.scot_rs?.bezerro} colorClass="bg-emerald-500" />
+        <ScotSection title="Desmama" category="desmama" data={payload.scot_rs?.desmama} colorClass="bg-orange-400" />
+        <ScotSection title="Vaca (Magra/Boiadeira)" category="vaca" data={payload.scot_rs?.vaca} colorClass="bg-pink-400" />
+      </div>
 
-        <div className="bg-zinc-900/40 p-4 rounded-[1.5rem] border border-white/5">
-          <h3 className="text-xs font-bold text-zinc-200 mb-3 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>  
-            Variação CEPEA
-          </h3>
-          <div className="flex flex-col">
-            <InputRow label="Boi Gordo (R$/Kg)" value={payload.cepea?.boi || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, boi: v } }))} />
-            <InputRow label="Vaca Gorda (R$/Kg)" value={payload.cepea?.vaca || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, vaca: v } }))} />
-            <InputRow label="Novilho/Novilha (R$/Kg)" value={payload.cepea?.novilho || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, novilho: v } }))} />
-            <InputRow label="Terneira (R$/Kg)" value={payload.cepea?.terneira || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, terneira: v } }))} />
-            <InputRow label="Terneiro (R$/Kg)" value={payload.cepea?.terneiro || ''} onChange={(v) => setPayload((p: any) => ({ ...p, cepea: { ...p.cepea, terneiro: v } }))} />
-          </div>
-        </div>
+      <div className="mt-6 p-3 bg-zinc-950/40 rounded-xl border border-white/5">
+        <p className="text-[8px] text-zinc-500 italic text-center">
+          Fonte: Scot Consultoria (Cotações de Reposição - Rio Grande do Sul)
+        </p>
       </div>
     </div>
   );
@@ -3649,40 +3770,31 @@ function DrPastoView({ user }: { user: User }) {
     if (!files || files.length === 0) return;
     setError(null);
     setAnalysis(null);
-    const maxBytes = 8 * 1024 * 1024;
-    
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!file.type || !file.type.startsWith('image/')) {
         setError('Um ou mais arquivos inválidos. Selecione apenas imagens.');
         return;
       }
-      if (file.size > maxBytes) {
-        setError(`A imagem ${file.name} é muito grande. Escolha fotos menores (até 8MB).`);
-        return;
-      }
 
       try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = () => reject(new Error('Falha ao ler a imagem.'));
-          reader.onload = () => resolve(String(reader.result || ''));
-          reader.readAsDataURL(file);
-        });
+        const dataUrl = await resizeImageFile(file);
         addImageFromDataUrl(dataUrl);
       } catch (e: any) {
         setError(e?.message || 'Falha ao processar uma imagem.');
       }
     }
   };
-
   const captureOrPickNative = async (source: CameraSource) => {
     setError(null);
     setAnalysis(null);
     try {
       if (source === CameraSource.Photos) {
         const photos = await CapacitorCamera.pickImages({
-           quality: 85,
+           quality: 70,
+           width: 1024,
+           height: 1024,
            limit: 5
         });
         for (const p of photos.photos) {
@@ -3702,7 +3814,9 @@ function DrPastoView({ user }: { user: User }) {
         }
       } else {
         const photo = await CapacitorCamera.getPhoto({
-          quality: 85,
+          quality: 70,
+          width: 1024,
+          height: 1024,
           allowEditing: false,
           resultType: CameraResultType.Base64,
           source,
