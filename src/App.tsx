@@ -13,6 +13,7 @@ import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBa
 import { TFLiteService } from './services/tflite';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UpdateButton } from './components/UpdateButton';
+import YOLOPreview from './components/YOLOPreview';
 
 const FARM_ICON_MAP: Record<string, React.ReactNode> = {
   cow: <Beef className="w-5 h-5" />,
@@ -553,6 +554,7 @@ function CameraView({ user }: { user: User | null }) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [yoloDetection, setYoloDetection] = useState<{box: number[], class: string, score: number} | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
@@ -821,6 +823,7 @@ function CameraView({ user }: { user: User | null }) {
 
   const resetImage = () => {
     setCapturedImages([]);
+    setYoloDetection(null);
     startCamera();
   };
 
@@ -895,11 +898,14 @@ function CameraView({ user }: { user: User | null }) {
       );
 
       const indices = await selectedIndices.array();
-      const detections = indices.map(idx => ({
-        box: rawBoxes[idx],
-        score: rawScores[idx],
-        class: rawClasses[idx]
-      }));
+      const detections = indices.map(idx => {
+        const [y1, x1, y2, x2] = rawBoxes[idx];
+        return {
+          box: [y1, x1, y2, x2],
+          score: rawScores[idx],
+          class: rawClasses[idx] === 0 ? 'Cattle' : 'Animal' // Assumindo 0 como cattle no seu modelo
+        };
+      });
 
       console.log("[YOLO] Detecções:", detections);
 
@@ -940,6 +946,14 @@ function CameraView({ user }: { user: User | null }) {
             console.log(`[YOLO] ${detections.length} animal(is) detectado(s). Recortando...`);
             // Usar a detecção com maior score (a primeira do NMS)
             const mainDetection = detections[0];
+            
+            // Armazenar para o preview ANTES do crop
+            setYoloDetection({
+              box: mainDetection.box, 
+              class: mainDetection.class, 
+              score: mainDetection.score
+            });
+
             const croppedImage = await cropBase64Image(capturedImages[0], mainDetection.box);
             
             // Substituir no array para que a análise Cloud use a imagem limpa
@@ -1238,11 +1252,20 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
           capturedImages.length > 0 ? (
             <>
               <div className={`transition-all duration-700 ease-in-out ${weightAnalysis ? 'scale-[0.15] origin-bottom-right absolute bottom-6 right-6 z-20 opacity-40 grayscale pointer-events-none' : 'w-full h-full'}`}>
-                <img 
-                  src={capturedImages[capturedImages.length - 1]} 
-                  alt="Captured" 
-                  className={`object-cover ${weightAnalysis ? 'rounded-2xl border-4 border-white/20' : 'w-full h-full'}`} 
-                />
+                {!weightAnalysis && yoloDetection ? (
+                  <YOLOPreview 
+                    imageSrc={capturedImages[capturedImages.length - 1]} 
+                    detectionBox={yoloDetection.box} 
+                    detectedClass={yoloDetection.class} 
+                    confidence={yoloDetection.score} 
+                  />
+                ) : (
+                  <img 
+                    src={capturedImages[capturedImages.length - 1]} 
+                    alt="Captured" 
+                    className={`object-cover ${weightAnalysis ? 'rounded-2xl border-4 border-white/20' : 'w-full h-full'}`} 
+                  />
+                )}
               </div>
               
               {!weightAnalysis && capturedImages.length > 1 && (
