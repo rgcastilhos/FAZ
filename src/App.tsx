@@ -951,6 +951,13 @@ function CameraView({ user }: { user: User | null }) {
     setWeightAnalysis(null);
     
     try {
+      let originalImage = "";
+      let croppedImage = "";
+      
+      if (estimationMode === 'camera' && capturedImages.length > 0) {
+        originalImage = capturedImages[0];
+      }
+
       // Tentar processar com YOLO se houver imagens
       if (estimationMode === 'camera' && capturedImages.length > 0) {
         console.log("[YOLO] Iniciando pré-processamento...");
@@ -972,13 +979,14 @@ function CameraView({ user }: { user: User | null }) {
               score: mainDetection.score
             });
 
-            const croppedImage = await cropBase64Image(capturedImages[0], mainDetection.box);
+            const croppedResult = await cropBase64Image(capturedImages[0], mainDetection.box);
+            croppedImage = croppedResult;
             
             // Substituir no array para que a análise Cloud use a imagem limpa
-            setCapturedImages([croppedImage]);
+            setCapturedImages([croppedResult]);
             
             // Garantir que a imagem limpa seja usada nas variáveis locais do restante da função
-            capturedImages[0] = croppedImage;
+            capturedImages[0] = croppedResult;
           } else {
             console.warn("[YOLO] Nenhum animal detectado na imagem. Prosseguindo com imagem original.");
           }
@@ -1100,45 +1108,46 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
         setWeightAnalysis(formattedResult);
         
         // Redimensionar fotos capturadas para economizar espaço e impossibilitar visualização detalhada
-        if (estimationMode === 'camera' && capturedImages.length > 0) {
+        if (estimationMode === 'camera' && (originalImage || croppedImage)) {
           try {
-            const resizedImages = await Promise.all(
-              capturedImages.map(img => resizeBase64Image(img, 100, 100, 0.4))
-            );
-            setCapturedImages(resizedImages);
+            // Salvar apenas a fotoRecortada e descartar a original conforme solicitado
+            // Se não houver recorte (YOLO falhou), usamos a original redimensionada como 'fotoRecortada'
+            const finalImageToSave = croppedImage || originalImage;
+            const resizedCropped = await resizeBase64Image(finalImageToSave, 300, 300, 0.7);
             
-            // Save to history com imagem já reduzida e dados YOLO se existirem
+            // No estado do componente, mantemos a versão minúscula (100x100) para visualização rápida/restringida
+            const thumbImage = await resizeBase64Image(finalImageToSave, 100, 100, 0.4);
+            setCapturedImages([thumbImage]);
+            
+            // Save to history com o novo esquema Dexie (Pesagem)
             await addHistory({
-              type: estimationMode,
-              animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
-              breed: data.raca || manualData.breed || 'N/A',
-              weight: pesoFinal,
+              data: new Date(),
+              animal: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
+              peso: pesoFinal,
+              fotoOriginal: '', // Descartada para economizar espaço
+              fotoRecortada: resizedCropped,
+              confianca: yoloDetection?.score || 1.0,
               resultText: formattedResult,
-              imageData: resizedImages[0],
-              yoloDetection: yoloDetection || undefined
             }, user?.username);
           } catch (resizeErr) {
             console.error("Erro ao redimensionar imagens após pesagem:", resizeErr);
-            // Fallback: salva com imagem original se falhar
+            // Fallback: salva com o que tiver disponível
             await addHistory({
-              type: estimationMode,
-              animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
-              breed: data.raca || manualData.breed || 'N/A',
-              weight: pesoFinal,
-              resultText: formattedResult,
-              imageData: capturedImages[0],
-              yoloDetection: yoloDetection || undefined
+              animal: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
+              peso: pesoFinal,
+              fotoOriginal: '',
+              fotoRecortada: croppedImage || originalImage,
+              confianca: yoloDetection?.score || 1.0,
             }, user?.username);
           }
         } else {
           // No manual mode or no images
           await addHistory({
-            type: estimationMode,
-            animalType: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
-            breed: data.raca || manualData.breed || 'N/A',
-            weight: pesoFinal,
-            resultText: formattedResult,
-            imageData: undefined
+            animal: estimationMode === 'manual' ? manualData.animalType : (data.raca || 'Animal'),
+            peso: pesoFinal,
+            fotoOriginal: '',
+            fotoRecortada: '',
+            confianca: 1.0,
           }, user?.username);
         }
 
@@ -1527,9 +1536,9 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
                   exit={{ opacity: 0, x: 20 }}
                   className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-[1.5rem] flex items-center gap-4 group backdrop-blur-sm hover:border-[#5a5a40]/30 transition-all"
                 >
-                  {item.imageData ? (
+                  {item.fotoRecortada || item.fotoOriginal || item.imageData ? (
                     <div className="w-14 h-14 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 shadow-lg">
-                      <img src={item.imageData} alt="Animal" className="w-full h-full object-cover" />
+                      <img src={item.fotoRecortada || item.fotoOriginal || item.imageData} alt="Animal" className="w-full h-full object-cover" />
                     </div>
                   ) : (
                     <div className="w-14 h-14 rounded-xl bg-zinc-800 flex items-center justify-center flex-shrink-0 border border-white/5">
@@ -1538,15 +1547,20 @@ Nota: Cálculo ajustado com fator de correção biométrica baseado em análise 
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-serif italic font-bold text-zinc-200 truncate">{item.animalType} - {item.breed}</p>
-                      <p className="text-[10px] font-mono text-zinc-600">{new Date(item.createdAt).toLocaleDateString()}</p>
+                      <p className="text-sm font-serif italic font-bold text-zinc-200 truncate">{item.animal || item.animalType} {item.breed ? `- ${item.breed}` : ''}</p>
+                      <p className="text-[10px] font-mono text-zinc-600">{new Date(item.data || item.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="px-2 py-0.5 bg-[#5a5a40]/20 text-[#d2b48c] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#5a5a40]/30">
-                        {item.weight} kg
+                        {item.peso || item.weight} kg
                       </span>
-                      <span className="text-[9px] text-zinc-600 uppercase font-black tracking-widest">
-                        {item.type === 'camera' ? 'IA Vision' : 'Manual'}
+                      {item.confianca && item.confianca < 1 && (
+                        <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-tighter">
+                          IA: {(item.confianca * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      <span className="text-[9px] text-zinc-600 uppercase font-black tracking-widest ml-auto">
+                        {item.fotoOriginal ? 'IA Vision' : 'Manual'}
                       </span>
                     </div>
                   </div>

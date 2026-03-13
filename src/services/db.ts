@@ -1,156 +1,110 @@
-import { openDB, DBSchema } from 'idb';
+import Dexie, { Table } from 'dexie';
 
-interface GalleryDB extends DBSchema {
-  images: {
-    key: number;
-    value: {
-      id?: number;
-      data: string;
-      createdAt: number;
-      username?: string;
-    };
-    indexes: { 'by-date': number, 'by-user': string };
-  };
-  training_data: {
-    key: number;
-    value: {
-      id?: number;
-      imageData: string;
-      estimatedWeight: number;
-      realWeight: number;
-      animalType: string;
-      createdAt: number;
-      username?: string;
-    };
-    indexes: { 'by-date': number, 'by-user': string };
-  };
-  history: {
-    key: number;
-    value: {
-      id?: number;
-      type: 'camera' | 'manual';
-      animalType: string;
-      breed: string;
-      weight: number;
-      resultText: string;
-      imageData?: string;
-      createdAt: number;
-      username?: string;
-      yoloDetection?: {
-        box: number[];
-        score: number;
-        class: string;
-      };
-    };
-    indexes: { 'by-date': number, 'by-user': string };
-  };
+export interface Pesagem {
+  id?: number;
+  data: Date;
+  animal: string;       // Classe detectada pelo YOLO (ex: Cattle)
+  peso: number;         // Resultado do seu modelo de regressão
+  fotoOriginal: string; // Base64 da foto completa
+  fotoRecortada: string; // Base64 apenas do boi (gerada pelo YOLO)
+  confianca: number;    // Nível de certeza da IA
+  username?: string;
 }
 
-const DB_NAME = 'animal-weight-db';
-const STORE_NAME = 'images';
-const TRAINING_STORE = 'training_data';
-const HISTORY_STORE = 'history';
+export interface TrainingData {
+  id?: number;
+  imageData: string;
+  estimatedWeight: number;
+  realWeight: number;
+  animalType: string;
+  createdAt: number;
+  username?: string;
+}
 
-export const initDB = async () => {
-  return openDB<GalleryDB>(DB_NAME, 4, {
-    upgrade(db, oldVersion, newVersion, transaction) {
-      if (oldVersion < 1) {
-        const store = db.createObjectStore(STORE_NAME, {
-          keyPath: 'id',
-          autoIncrement: true,
-        });
-        store.createIndex('by-date', 'createdAt');
-      }
-      if (oldVersion < 2) {
-        const store = db.createObjectStore(TRAINING_STORE, {
-          keyPath: 'id',
-          autoIncrement: true,
-        });
-        store.createIndex('by-date', 'createdAt');
-      }
-      if (oldVersion < 3) {
-        const store = db.createObjectStore(HISTORY_STORE, {
-          keyPath: 'id',
-          autoIncrement: true,
-        });
-        store.createIndex('by-date', 'createdAt');
-      }
-      
-      // Add username index for all stores in version 4
-      if (oldVersion < 4) {
-        [STORE_NAME, TRAINING_STORE, HISTORY_STORE].forEach(storeName => {
-          const store = transaction.objectStore(storeName as any);
-          if (!store.indexNames.contains('by-user')) {
-            store.createIndex('by-user', 'username');
-          }
-        });
-      }
-    },
-  });
-};
+export interface GalleryItem {
+  id?: number;
+  data: string;
+  createdAt: number;
+  username?: string;
+}
 
-export const addHistory = async (data: Omit<GalleryDB['history']['value'], 'id' | 'createdAt'>, username?: string) => {
-  const db = await initDB();
-  return db.add(HISTORY_STORE, {
-    ...data,
-    username,
-    createdAt: Date.now(),
-  });
+export class MeuBanco extends Dexie {
+  pesagens!: Table<Pesagem>;
+  training_data!: Table<TrainingData>;
+  images!: Table<GalleryItem>;
+
+  constructor() {
+    super('SistemaPecuario');
+    this.version(1).stores({
+      pesagens: '++id, data, animal, username',
+      training_data: '++id, createdAt, username',
+      images: '++id, createdAt, username'
+    });
+  }
+}
+
+export const db = new MeuBanco();
+
+// Funções auxiliares para App.tsx (mantendo compatibilidade onde possível)
+
+export const addHistory = async (data: any, username?: string) => {
+  const pesagem: Pesagem = {
+    data: new Date(),
+    animal: data.animal || data.animalType || data.breed || 'Animal',
+    peso: data.peso || data.weight || 0,
+    fotoOriginal: data.fotoOriginal || data.imageData || '',
+    fotoRecortada: data.fotoRecortada || data.imageData || '',
+    confianca: data.confianca || data.yoloDetection?.score || 1.0,
+    username
+  };
+  return db.pesagens.add(pesagem);
 };
 
 export const getHistory = async (username?: string) => {
-  const db = await initDB();
   if (username) {
-    return db.getAllFromIndex(HISTORY_STORE, 'by-user', username);
+    return db.pesagens.where('username').equals(username).toArray();
   }
-  return db.getAllFromIndex(HISTORY_STORE, 'by-date');
+  return db.pesagens.toArray();
 };
 
 export const deleteHistory = async (id: number) => {
-  const db = await initDB();
-  return db.delete(HISTORY_STORE, id);
+  return db.pesagens.delete(id);
 };
 
-export const addTrainingData = async (data: Omit<GalleryDB['training_data']['value'], 'id' | 'createdAt'>, username?: string) => {
-  const db = await initDB();
-  return db.add(TRAINING_STORE, {
+export const addTrainingData = async (data: any, username?: string) => {
+  return db.training_data.add({
     ...data,
-    username,
     createdAt: Date.now(),
+    username
   });
 };
 
 export const getTrainingData = async (username?: string) => {
-  const db = await initDB();
   if (username) {
-    return db.getAllFromIndex(TRAINING_STORE, 'by-user', username);
+    return db.training_data.where('username').equals(username).toArray();
   }
-  return db.getAllFromIndex(TRAINING_STORE, 'by-date');
+  return db.training_data.toArray();
 };
 
 export const deleteTrainingData = async (id: number) => {
-  const db = await initDB();
-  return db.delete(TRAINING_STORE, id);
+  return db.training_data.delete(id);
 };
 
 export const addImageToDB = async (imageData: string, username?: string) => {
-  const db = await initDB();
-  return db.add(STORE_NAME, {
+  return db.images.add({
     data: imageData,
-    username,
     createdAt: Date.now(),
+    username
   });
 };
 
 export const getImagesFromDB = async (username?: string) => {
-  const db = await initDB();
   if (username) {
-    return db.getAllFromIndex(STORE_NAME, 'by-user', username);
+    return db.images.where('username').equals(username).toArray();
   }
-  return db.getAllFromIndex(STORE_NAME, 'by-date');
+  return db.images.toArray();
 };
 
 export const deleteImageFromDB = async (id: number) => {
-  const db = await initDB();
-  return db.delete(STORE_NAME, id);
+  return db.images.delete(id);
 };
