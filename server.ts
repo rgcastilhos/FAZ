@@ -277,11 +277,11 @@ async function startServer() {
   });
 
   app.get("/api/version", (req, res) => {
-    const currentVersion = process.env.APP_VERSION || "1.0.0";
+    const currentVersion = process.env.APP_VERSION || "1.0.1";
     res.json({
       version: currentVersion,
       releaseDate: new Date().toISOString(),
-      changelog: "Melhorias de qualidade e correções de bugs",
+      changelog: "Atualização de layout e cotações CEPEA/UFRGS",
       isRequired: false,
     });
   });

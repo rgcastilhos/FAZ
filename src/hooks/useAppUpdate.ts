@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 
-const CURRENT_VERSION = '1.0.0'; // Update this when you release new versions
+const CURRENT_VERSION = '1.0.1'; // Update this when you release new versions
 const VERSION_CHECK_INTERVAL = 60000; // Check every 60 seconds
 
 interface VersionInfo {
