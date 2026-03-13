@@ -896,26 +896,26 @@ function CameraView({ user }: { user: User | null }) {
 
       let payload: any;
       try {
-        // Tentar inferência local TFLite primeiro (se disponível e em modo nativo)
-        let tfliteResult = null;
-        if (estimationMode === 'camera' && TFLiteService.isAvailable() && capturedImages.length > 0) {
-          console.log("[TFLite] Tentando inferência local antes da nuvem...");
-          tfliteResult = await TFLiteService.estimateWeight(capturedImages[0]);
-        }
+        // TFLite desativado temporariamente conforme solicitado pelo usuário até que o modelo esteja pronto
+        // let tfliteResult = null;
+        // if (estimationMode === 'camera' && TFLiteService.isAvailable() && capturedImages.length > 0) {
+        //   console.log("[TFLite] Tentando inferência local antes da nuvem...");
+        //   tfliteResult = await TFLiteService.estimateWeight(capturedImages[0]);
+        // }
 
-        if (tfliteResult) {
-          console.log("[TFLite] Usando resultado local:", tfliteResult);
-          payload = {
-            data: {
-              peso_estimado_kg: tfliteResult.weight_kg,
-              raca: tfliteResult.class_name || 'Detectado (Local)',
-              sexo: 'N/D',
-              ecc: 'N/D',
-              analise_visual: `Estimativa realizada via processamento local TFLite (Confiança: ${(tfliteResult.confidence * 100).toFixed(1)}%).`
-            }
-          };
+        if (false) { // Substituído tfliteResult por false para forçar fallback para nuvem
+          // console.log("[TFLite] Usando resultado local:", tfliteResult);
+          // payload = {
+          //   data: {
+          //     peso_estimado_kg: tfliteResult.weight_kg,
+          //     raca: tfliteResult.class_name || 'Detectado (Local)',
+          //     sexo: 'N/D',
+          //     ecc: 'N/D',
+          //     analise_visual: `Estimativa realizada via processamento local TFLite (Confiança: ${(tfliteResult.confidence * 100).toFixed(1)}%).`
+          //   }
+          // };
         } else {
-          // Fallback para API Cloud
+          // Fallback para API Cloud (Atualmente o modo PRINCIPAL)
           const response = await apiFetch('/api/ai/estimate-weight', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
