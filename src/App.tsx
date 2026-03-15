@@ -10,7 +10,6 @@ import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addT
 import type { User, GalleryItem, InventoryItem, Category, CardOptions, AppSettings, MapGroundingLink, WeatherData, TrainingData } from './types';
 import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './constants';
 import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image, cropBase64Image, isNativeRuntime } from './utils/formatters';
-import { TFLiteService } from './services/tflite';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ManejoPastoView } from './components/ManejoPasto';
 import YOLOPreview from './components/YOLOPreview';
@@ -1093,34 +1092,15 @@ function CameraView({ user }: { user: User | null }) {
 
       let payload: any;
       try {
-        let tfliteResult = null;
-        if (estimationMode === 'camera' && TFLiteService.isAvailable() && capturedImages.length > 0) {
-          console.log("[TFLite] Tentando inferência local antes da nuvem...");
-          tfliteResult = await TFLiteService.estimateWeight(capturedImages[0]);
-        }
-
-        if (tfliteResult) { 
-          console.log("[TFLite] Usando resultado local:", tfliteResult);
-          payload = {
-            data: {
-              peso_estimado_kg: tfliteResult.weight_kg,
-              raca: tfliteResult.class_name || 'Detectado (Local)',
-              sexo: 'N/D',
-              ecc: 'N/D',
-              analise_visual: `Estimativa realizada via processamento local TFLite (Confiança: ${(tfliteResult.confidence * 100).toFixed(1)}%).`
-            }
-          };
-        } else {
-          // Fallback para API Cloud (Atualmente o modo PRINCIPAL)
-          const response = await apiFetch('/api/ai/estimate-weight', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, inlineDataList }),
-          });
-          payload = await response.json().catch(() => ({} as any));
-          if (!response.ok) {
-            throw new Error(payload?.error || 'Falha na análise de peso.');
-          }
+        // Fallback para API Cloud (Atualmente o modo PRINCIPAL)
+        const response = await apiFetch('/api/ai/estimate-weight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, inlineDataList }),
+        });
+        payload = await response.json().catch(() => ({} as any));
+        if (!response.ok) {
+          throw new Error(payload?.error || 'Falha na análise de peso.');
         }
       } catch (e: any) {
         console.error("Inference error:", e);
