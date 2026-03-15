@@ -38,8 +38,19 @@ const normalizeCategoryIcon = (icon: unknown): string => {
   return FARM_ICON_MAP[resolved] ? resolved : 'box';
 };
 
+const generateSecureId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Robust fallback for older WebViews
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 10);
+  const entropy = (performance?.now ? performance.now() : 0).toString(36).replace('.', '');
+  return `gen-${timestamp}-${random}-${entropy}`;
+};
+
 const normalizeCategory = (raw: any): Category => ({
-  id: String(raw?.id || crypto.randomUUID()),
+  id: String(raw?.id || generateSecureId()),
   name: String(raw?.name || 'Categoria'),
   icon: normalizeCategoryIcon(raw?.icon),
 });
@@ -111,7 +122,7 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
       const loggedUser = { ...payload.user, role: 'user' as const };
       upsertOfflineAuthEntry(trimmedUsername, trimmedPassword, loggedUser);
       onLogin(loggedUser);
-    } catch {
+    } catch (e: any) {
       const trimmedUsername = (username || '').trim();
       const trimmedPassword = (password || '').trim();
       const cached = getOfflineAuthEntry(trimmedUsername);
@@ -124,7 +135,8 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
         return;
       }
       setError(true);
-      setErrorMessage('Sem conexão. Faça login online ao menos 1x a cada 3 dias.');
+      const technicalMsg = e?.message ? ` (${e.message})` : '';
+      setErrorMessage(`Sem conexão com o servidor${technicalMsg}. Faça login online ao menos 1x a cada 3 dias.`);
     } finally {
       setIsLoading(false);
     }
@@ -309,8 +321,8 @@ function UserManagementView() {
         return;
       }
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
-    } catch {
-      setError('Sem conexão com o servidor de licença.');
+    } catch (e: any) {
+      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'})`);
     }
   }, []);
 
@@ -368,8 +380,8 @@ function UserManagementView() {
       }
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
       resetForm();
-    } catch {
-      setError('Sem conexão com o servidor de licença.');
+    } catch (e: any) {
+      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'})`);
     } finally {
       setIsSaving(false);
     }
@@ -409,8 +421,8 @@ function UserManagementView() {
       }
       if (editingUser === usernameToDelete) resetForm();
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
-    } catch {
-      setError('Sem conexão com o servidor de licença.');
+    } catch (e: any) {
+      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'})`);
     } finally {
       setIsSaving(false);
     }
@@ -2174,7 +2186,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
   const storagePrefix = user ? `${user.username}_` : '';
 
   const normalizeInventoryItem = (raw: any): InventoryItem => ({
-    id: String(raw?.id || crypto.randomUUID()),
+    id: String(raw?.id || generateSecureId()),
     name: String(raw?.name || 'Item'),
     quantity: Number(raw?.quantity) || 0,
     photo: raw?.photo,
@@ -2306,7 +2318,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
     const photoFile = formData.get('photo') as File;
     const save = (photo?: string) => {
       const newItem: InventoryItem = {
-        id: crypto.randomUUID(),
+        id: generateSecureId(),
         name: formData.get('name') as string,
         quantity: parseInt(formData.get('quantity') as string) || 0,
         tickProtocolDays: parseInt(formData.get('tickProtocolDays') as string) || undefined,
@@ -3090,7 +3102,7 @@ function FarmView({ user, settings, setSettings }: { user: User | null, settings
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
                   const newCat: Category = {
-                    id: crypto.randomUUID(),
+                    id: generateSecureId(),
                     name: formData.get('catName') as string,
                     icon: normalizeCategoryIcon(formData.get('catIcon')),
                   };
@@ -3287,17 +3299,28 @@ function Dashboard({ user, onLogout, onUpdateUser, onManualSync, isSyncing }: { 
   const isAdmin = user.role === 'admin';
 
   const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem(`${storagePrefix}agro_settings`);
-    const parsed = saved ? JSON.parse(saved) : {};
-    const defaultBg = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2070&auto=format&fit=crop';
-    return { 
-      theme: 'rural', 
-      farmName: parsed.farmName || 'AgroGestão Pro', 
-      dashboardBgColor: parsed.dashboardBgColor || '#1a1a1a',
-      ...parsed,
-      backgroundImage: parsed.backgroundImage || defaultBg,
-      cardOptions: { ...DEFAULT_CARD_OPTIONS, ...(parsed.cardOptions || {}) }
-    };
+    try {
+      const saved = localStorage.getItem(`${storagePrefix}agro_settings`);
+      const parsed = saved ? JSON.parse(saved) : {};
+      const defaultBg = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2070&auto=format&fit=crop';
+      return { 
+        theme: 'rural', 
+        farmName: parsed.farmName || 'AgroGestão Pro', 
+        dashboardBgColor: parsed.dashboardBgColor || '#1a1a1a',
+        ...parsed,
+        backgroundImage: parsed.backgroundImage || defaultBg,
+        cardOptions: { ...DEFAULT_CARD_OPTIONS, ...(parsed.cardOptions || {}) }
+      };
+    } catch (e) {
+      console.error("Failed to load dashboard settings:", e);
+      return {
+        theme: 'rural',
+        farmName: 'AgroGestão Pro',
+        dashboardBgColor: '#1a1a1a',
+        backgroundImage: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2070&auto=format&fit=crop',
+        cardOptions: DEFAULT_CARD_OPTIONS
+      };
+    }
   });
 
   useEffect(() => {
@@ -4426,13 +4449,16 @@ const shouldSyncKey = (key: string | null): key is string => {
 const ensureSyncClientId = (): string => {
   const existing = localStorage.getItem(SYNC_CLIENT_KEY);
   if (existing) return existing;
-  const generated = crypto.randomUUID();
+  const generated = generateSecureId();
   localStorage.setItem(SYNC_CLIENT_KEY, generated);
   return generated;
 };
 
 const DEFAULT_NATIVE_API_BASE = 'https://faz-3ezg.onrender.com';
-const DEFAULT_NATIVE_API_BASE_FALLBACK = 'https://app.fazendaon.com';
+const API_BASES = [
+  DEFAULT_NATIVE_API_BASE,
+  'https://app.fazendaon.com' // Fallback (se configurado)
+];
 const OPEN_FARM_SETTINGS_KEY = '__open_farm_settings';
 const OFFLINE_AUTH_KEY = '__offline_auth_v1';
 const OFFLINE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -4518,77 +4544,94 @@ const refreshOfflineWindowForUser = (username: string, user?: User) => {
 };
 
 const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => {
-  if (isNativeRuntime()) {
-    const url = `${DEFAULT_NATIVE_API_BASE}${path}`;
-    const method = (init?.method || 'GET').toUpperCase();
-    const rawHeaders = init?.headers;
-    const headers: Record<string, string> = {};
-    if (rawHeaders instanceof Headers) {
-      rawHeaders.forEach((value, key) => { headers[key] = value; });
-    } else if (Array.isArray(rawHeaders)) {
-      rawHeaders.forEach(([key, value]) => { headers[String(key)] = String(value); });
-    } else if (rawHeaders && typeof rawHeaders === 'object') {
-      Object.entries(rawHeaders as Record<string, string>).forEach(([k, v]) => {
-        headers[k] = String(v);
-      });
+  const isNative = isNativeRuntime();
+  
+  // Decide bases to try
+  let bases: string[] = [];
+  if (isNative) {
+    bases = API_BASES;
+  } else {
+    const explicit = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
+    const explicitIsHttp = /^https?:\/\//i.test(explicit);
+    const isApiPath = path.startsWith('/api/');
+    if (explicitIsHttp) {
+      bases = [explicit.replace(/\/$/, '')];
+    } else if (isApiPath) {
+      bases = API_BASES;
+    } else {
+      bases = [''];
     }
-
-    let data: any = undefined;
-    const body = init?.body;
-    if (typeof body === 'string') {
-      const contentType = (headers['Content-Type'] || headers['content-type'] || '').toLowerCase();
-      if (contentType.includes('application/json')) {
-        try {
-          data = JSON.parse(body);
-        } catch {
-          data = body;
-        }
-      } else {
-        data = body;
-      }
-    }
-
-    const nativeResponse = await CapacitorHttp.request({
-      url,
-      method,
-      headers,
-      data,
-      readTimeout: 30000,
-      connectTimeout: 30000,
-    });
-
-    const responseBody =
-      typeof nativeResponse.data === 'string'
-        ? nativeResponse.data
-        : JSON.stringify(nativeResponse.data ?? {});
-    return new Response(responseBody, {
-      status: nativeResponse.status,
-      headers: nativeResponse.headers as HeadersInit,
-    });
   }
 
-  const explicit = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
-  const explicitIsHttp = /^https?:\/\//i.test(explicit);
-  const isApiPath = path.startsWith('/api/');
-  const bases = explicitIsHttp
-    ? [explicit.replace(/\/$/, '')]
-    : isApiPath
-      ? [DEFAULT_NATIVE_API_BASE]
-      : [''];
-
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = isNative ? 1 : 3; // Retry only once per base if native (since we iterate bases)
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     for (const base of bases) {
       const url = base ? `${base}${path}` : path;
       try {
-        return await fetch(url, init || {});
+        if (isNative) {
+          const method = (init?.method || 'GET').toUpperCase();
+          const rawHeaders = init?.headers;
+          const headers: Record<string, string> = {};
+          if (rawHeaders instanceof Headers) {
+            rawHeaders.forEach((value, key) => { headers[key] = value; });
+          } else if (Array.isArray(rawHeaders)) {
+            rawHeaders.forEach(([key, value]) => { headers[String(key)] = String(value); });
+          } else if (rawHeaders && typeof rawHeaders === 'object') {
+            Object.entries(rawHeaders as Record<string, string>).forEach(([k, v]) => {
+              headers[k] = String(v);
+            });
+          }
+
+          let data: any = undefined;
+          const body = init?.body;
+          if (typeof body === 'string') {
+            const contentType = (headers['Content-Type'] || headers['content-type'] || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+              try {
+                data = JSON.parse(body);
+              } catch {
+                data = body;
+              }
+            } else {
+              data = body;
+            }
+          }
+
+          const nativeResponse = await CapacitorHttp.request({
+            url,
+            method,
+            headers,
+            data,
+            readTimeout: 30000,
+            connectTimeout: 30000,
+          });
+
+          const responseBody =
+            typeof nativeResponse.data === 'string'
+              ? nativeResponse.data
+              : JSON.stringify(nativeResponse.data ?? {});
+          
+          return new Response(responseBody, {
+            status: nativeResponse.status,
+            headers: nativeResponse.headers as HeadersInit,
+          });
+        } else {
+          return await fetch(url, init || {});
+        }
       } catch (error) {
         lastError = error;
+        console.warn(`apiFetch failed for ${url}:`, error);
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Simple backoff before next full attempt cycle
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
   }
-  throw lastError || new Error('Network error');
+
+  throw lastError || new Error('Falha na comunicação com o servidor.');
 };
 
 const warmupApi = async (): Promise<void> => {

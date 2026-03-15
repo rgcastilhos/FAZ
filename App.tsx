@@ -3501,7 +3501,7 @@ const ensureSyncClientId = (): string => {
   return generated;
 };
 
-const DEFAULT_NATIVE_API_BASE = ((import.meta as any).env?.VITE_DEFAULT_NATIVE_API_BASE || '').trim();
+const DEFAULT_NATIVE_API_BASE = ((import.meta as any).env?.VITE_DEFAULT_NATIVE_API_BASE || 'https://fazendaon-server.onrender.com').trim();
 const NATIVE_API_BASE_OVERRIDE_KEY = '__native_api_base_override_v1';
 const OPEN_FARM_SETTINGS_KEY = '__open_farm_settings';
 const OFFLINE_AUTH_KEY = '__offline_auth_v1';
