@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users as UsersIcon, Key, LayoutGrid, Tractor, Beef, Settings, User as UserIcon, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import * as tf from '@tensorflow/tfjs';
@@ -111,11 +111,13 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: trimmedUsername, password: trimmedPassword }),
       });
+      
       const payload = await response.json().catch(() => ({} as any));
 
       if (!response.ok || !payload?.user) {
         setError(true);
-        setErrorMessage(payload?.error || 'Falha ao validar licença. Tente novamente.');
+        const serverError = payload?.error || (response.status === 401 ? 'Usuário ou senha incorretos.' : 'Falha ao validar licença. Tente novamente.');
+        setErrorMessage(serverError);
         return;
       }
 
@@ -4599,12 +4601,15 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
             if (contentType.includes('application/json')) {
               try {
                 data = JSON.parse(body);
-              } catch {
+              } catch (parseError) {
+                console.error('apiFetch: failed to parse JSON body for native request', parseError);
                 data = body;
               }
             } else {
               data = body;
             }
+          } else if (body !== null && body !== undefined) {
+            data = body;
           }
 
           const nativeResponse = await CapacitorHttp.request({
