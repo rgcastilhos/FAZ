@@ -37,6 +37,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
               <p className="text-zinc-400 text-sm leading-relaxed">
                 O aplicativo encontrou um erro inesperado. Tente reiniciar ou limpar o cache se o problema persistir.
               </p>
+              {this.state.error && (
+                <div className="mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl w-full">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-red-400 mb-1">Erro Detectado:</p>
+                  <p className="text-xs text-red-200 font-mono break-all">{this.state.error.message || String(this.state.error)}</p>
+                </div>
+              )}
             </div>
             
             {this.state.error && (

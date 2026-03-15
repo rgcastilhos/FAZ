@@ -3,7 +3,7 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useAppUpdate } from '../hooks/useAppUpdate';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'motion';
 
 export function UpdateButton() {
   const { hasUpdate, isChecking, newVersion, performUpdate, dismissUpdate } = useAppUpdate();
