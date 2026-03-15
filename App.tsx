@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Camera, Image as ImageIcon, RefreshCw, X, Download, Trash2, SwitchCamera, Scale, Loader2, Lock, LogOut, ChevronRight, UserPlus, Users, Key, LayoutGrid, Tractor, Beef, Settings, User, Pencil, Edit2, List, Bug, Map, Calculator, TrendingUp, DollarSign, Brain, AlertTriangle, Stethoscope } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'motion';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addTrainingData, deleteTrainingData, addHistory, getHistory, deleteHistory } from './services/db';
