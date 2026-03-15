@@ -126,14 +126,22 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
       const trimmedUsername = (username || '').trim();
       const trimmedPassword = (password || '').trim();
       const cached = getOfflineAuthEntry(trimmedUsername);
-      if (
-        cached &&
-        cached.password === trimmedPassword &&
-        Date.now() <= Number(cached.offlineUntil || 0)
-      ) {
+      
+      if (cached) {
+        if (cached.password !== trimmedPassword) {
+          setError(true);
+          setErrorMessage('Usuário ou senha incorretos (Offline).');
+          return;
+        }
+        if (Date.now() > Number(cached.offlineUntil || 0)) {
+          setError(true);
+          setErrorMessage('Sua sessão offline expirou. Conecte-se à internet para renovar seu acesso (necessário a cada 3 dias).');
+          return;
+        }
         onLogin({ ...cached.user, role: 'user' });
         return;
       }
+
       setError(true);
       const technicalMsg = e?.message ? ` (${e.message})` : '';
       setErrorMessage(`Sem conexão com o servidor${technicalMsg}. Faça login online ao menos 1x a cada 3 dias.`);
@@ -4564,7 +4572,7 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
   }
 
   let lastError: unknown = null;
-  const maxAttempts = isNative ? 1 : 3; // Retry only once per base if native (since we iterate bases)
+  const maxAttempts = isNative ? 2 : 3; // Retry more on native too to help with Render cold starts
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     for (const base of bases) {
@@ -4604,8 +4612,8 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
             method,
             headers,
             data,
-            readTimeout: 30000,
-            connectTimeout: 30000,
+            readTimeout: 60000,
+            connectTimeout: 60000,
           });
 
           const responseBody =
