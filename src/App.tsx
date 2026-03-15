@@ -9,7 +9,7 @@ import { addImageToDB, getImagesFromDB, deleteImageFromDB, getTrainingData, addT
 // Import types and utilities
 import type { User, GalleryItem, InventoryItem, Category, CardOptions, AppSettings, MapGroundingLink, WeatherData, TrainingData } from './types';
 import { ADMIN_CODE, DEFAULT_CATEGORIES, DEFAULT_CARD_OPTIONS, THEMES } from './constants';
-import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image, cropBase64Image } from './utils/formatters';
+import { toInputDate, toDisplayDate, formatNumber, describeWeatherCode, encodeBase64, decodeBase64, generateId, resizeImageFile, resizeBase64Image, cropBase64Image, isNativeRuntime } from './utils/formatters';
 import { TFLiteService } from './services/tflite';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ManejoPastoView } from './components/ManejoPasto';
@@ -322,7 +322,7 @@ function UserManagementView() {
       }
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
     } catch (e: any) {
-      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'})`);
+      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'}). Faça login online ao menos 1x a cada 3 dias.`);
     }
   }, []);
 
@@ -381,7 +381,7 @@ function UserManagementView() {
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
       resetForm();
     } catch (e: any) {
-      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'})`);
+      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'}). Faça login online ao menos 1x a cada 3 dias.`);
     } finally {
       setIsSaving(false);
     }
@@ -422,7 +422,7 @@ function UserManagementView() {
       if (editingUser === usernameToDelete) resetForm();
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
     } catch (e: any) {
-      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'})`);
+      setError(`Sem conexão com o servidor de licença. (${e?.message || 'erro desconhecido'}). Faça login online ao menos 1x a cada 3 dias.`);
     } finally {
       setIsSaving(false);
     }
@@ -4637,8 +4637,8 @@ const apiFetch = async (path: string, init?: RequestInit): Promise<Response> => 
 const warmupApi = async (): Promise<void> => {
   try {
     await apiFetch('/api/health', { method: 'GET' });
-  } catch {
-    // Best effort only.
+  } catch (e: any) {
+    console.warn('Warmup failed:', e?.message);
   }
 };
 
