@@ -70,3 +70,19 @@
     "NEW INSTRUCTION": "WHEN estimating weight AND user confirmed TFLite ready THEN use TFLite locally and skip cloud"
 }
 
+[2026-03-14 21:20] - Updated by Junie
+{
+    "TYPE": "negative",
+    "CATEGORY": "Startup blank screen",
+    "EXPECTATION": "The app should open and render the initial screen instead of staying on a white screen.",
+    "NEW INSTRUCTION": "WHEN app launches THEN ensure it navigates to the initial screen, never stay blank"
+}
+
+[2026-03-14 22:06] - Updated by Junie
+{
+    "TYPE": "preference",
+    "CATEGORY": "Processing mode",
+    "EXPECTATION": "Temporarily disable TFLite and use only cloud-based weight estimation across the app.",
+    "NEW INSTRUCTION": "WHEN estimating weight THEN skip TFLite and route to cloud service"
+}
+
